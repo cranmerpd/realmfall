@@ -45,9 +45,12 @@
   li.on .name { color: #fff; }
   li .num { margin-left: auto; color: var(--dim); font: 500 12px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: 0; text-transform: none; }
   .swatch { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  #log .ev { display: grid; grid-template-columns: 46px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06); }
-  #log span { color: var(--dim); font: 500 11px/1.4 "IBM Plex Mono", ui-monospace, monospace; }
-  #log p { margin: 0; color: #d7dce4; font-size: 12.5px; }
+  .tabs { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-bottom: 16px; }
+  .tabs button { flex: 1; border: 0; border-radius: 0; color: var(--dim); padding: 8px 0; letter-spacing: .08em; }
+  .tabs button.on { background: #f4f7fc; color: #090a0d; }
+  #log .ev, .ev { display: grid; grid-template-columns: 46px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  .ev span { color: var(--dim); font: 500 11px/1.4 "IBM Plex Mono", ui-monospace, monospace; }
+  .ev p { margin: 0; color: #d7dce4; font-size: 12.5px; }
   @media (max-width: 860px) {
     header { flex-wrap: wrap; }
     .grow { display: none; }
@@ -69,6 +72,10 @@
   <div class="controls">
     <button id="newmap" type="button">New map</button>
     <button id="pause" type="button">Pause</button>
+    <div class="seg" id="layer">
+      <button type="button" data-m="politics" class="on">States</button>
+      <button type="button" data-m="faith">Faith</button>
+    </div>
     <div class="seg" id="speed">
       <button type="button" data-s="1">1×</button>
       <button type="button" data-s="2" class="on">2×</button>
@@ -88,15 +95,13 @@
     <div id="tip"></div>
   </div>
   <aside>
-    <div class="kicker">SELECTED</div>
-    <h2 id="focus">The world</h2>
-    <p id="subtitle"></p>
-    <p id="blurb">Separate continents. Faith, government, and wealth decide who fights and who breaks away.</p>
-    <div id="stats"></div>
-    <div class="kicker">REALMS</div>
-    <ul id="list"></ul>
-    <div class="kicker">CHRONICLE</div>
-    <div id="log"></div>
+    <div class="tabs" id="tabs">
+      <button type="button" data-tab="realm" class="on">Realm</button>
+      <button type="button" data-tab="world">World</button>
+      <button type="button" data-tab="faith">Faith</button>
+      <button type="button" data-tab="log">Log</button>
+    </div>
+    <div id="panel"></div>
   </aside>
 </div>
 <script>
@@ -107,13 +112,22 @@ const suffixes = ["wald","heim","dor","reach","mark","hold","ia","und","fen","ga
 const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8fb45e","#c9a06a","#3f9178","#d46d78","#b59a48","#3e8c96","#d48462","#7d74d0","#d2c15a","#5a9a55","#c45656","#4d7eb8","#d49a74","#8a8648"];
 
 const FAITH_POOL = ["Ashen Rite", "High Canon", "Old Grove", "Sun Creed", "Pale Choir", "Iron Psalm"];
-const GOVS = ["Crown", "League", "Temple", "Clans"];
+const FAITH_COLORS = ["#c4a574", "#7f97a8", "#7ea36d", "#c48b9a", "#d2c07a", "#8d7cc4"];
+const GOVS = ["Monarchy", "Republic", "Dictatorship", "Theocracy"];
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, faith, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
 let nextId = 1;
 let speed = 2;
+let mapMode = "politics";
+let tab = "realm";
+
+function govLabel(g) {
+  if (g === "Republic") return "Democratic republic";
+  return g || "Monarchy";
+}
+function faithColor(i) { return FAITH_COLORS[i % FAITH_COLORS.length]; }
 
 function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
 function ri(n) { return Math.floor(rnd() * n); }
@@ -228,12 +242,11 @@ function layContinents() {
 
 function pickGov(x, y) {
   const shore = coast && coast[y] && coast[y][x];
-  let border = false;
-  if (faith) for (const [nx, ny] of neighbors(x, y)) if (grid[ny][nx] === LAND && faith[ny][nx] !== faith[y][x]) border = true;
-  if (shore && rnd() < 0.55) return "League";
-  if (border && rnd() < 0.5) return "Temple";
-  if (rnd() < 0.3) return "Clans";
-  return "Crown";
+  const r = rnd();
+  if (r < 0.07) return "Theocracy";
+  if (r < 0.28) return "Dictatorship";
+  if (shore ? r < 0.72 : r < 0.5) return "Republic";
+  return "Monarchy";
 }
 
 function seedFaith() {
@@ -292,7 +305,7 @@ function generate() {
     claimDisk(n, 3);
   }
   selected = nations[0] ? nations[0].id : null;
-  logLines.push(year + ": A new age begins. " + continents + " continents. Faith does not follow the crown.");
+  logLines.push(year + ": A new age begins. " + continents + " continents. Faith is a layer, not a border.");
   acc = 0;
   recount();
   render();
@@ -311,9 +324,9 @@ function found(x, y, name, color, why, gov, faithId) {
   };
   nations.push(n);
   if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
-  const crown = g === "Temple"
-    ? name + " is crowned, a Temple of the " + faithName(f) + "."
-    : name + " is crowned, a " + g + ".";
+  const crown = g === "Theocracy"
+    ? name + " is founded as a theocracy of the " + faithName(f) + "."
+    : name + " is founded as " + (g === "Republic" ? "a democratic republic" : g === "Monarchy" ? "a monarchy" : "a dictatorship") + ".";
   chronicle(year || 1000, why || crown);
   return n;
 }
@@ -469,11 +482,11 @@ function measure(n) {
     const sea = coast && coast[y] && coast[y][x];
     if (sea) shores++;
     let w = souls / 800;
-    if (n.gov === "League" && sea) w *= 1.9;
+    if (n.gov === "Republic" && sea) w *= 1.9;
     else if (sea) w *= 1.15;
-    if (n.gov === "Crown" && d < 5) w *= 1.2;
-    if (n.gov === "Clans") w *= 0.86;
-    if (n.gov === "Temple" && faith && faith[y][x] === n.faith) w *= 1.12;
+    if (n.gov === "Monarchy" && d < 5) w *= 1.2;
+    if (n.gov === "Dictatorship") w *= 0.9;
+    if (n.gov === "Theocracy" && faith && faith[y][x] === n.faith) w *= 1.12;
     wealth += w;
   }
   n.reach = maxD;
@@ -487,10 +500,10 @@ function measure(n) {
   if (n.avg > 12) n.stability -= 0.1 + (n.avg - 12) * 0.035;
   else n.stability += 0.2;
   if (n.atWar.size) n.stability -= 0.25;
-  if (n.gov === "Temple") n.stability += n.unity > 0.85 ? 0.3 : n.unity < 0.65 ? -0.5 : 0;
-  if (n.gov === "Clans") n.stability -= 0.12;
-  if (n.gov === "League" && n.coasts / Math.max(1, n.pops) > 0.2) n.stability += 0.12;
-  if (n.gov === "Crown" && n.avg > 14) n.stability -= 0.12;
+  if (n.gov === "Theocracy") n.stability += n.unity > 0.85 ? 0.3 : n.unity < 0.65 ? -0.45 : 0;
+  if (n.gov === "Dictatorship") n.stability -= n.atWar.size ? 0.35 : 0.08;
+  if (n.gov === "Republic" && n.coasts / Math.max(1, n.pops) > 0.18) n.stability += 0.12;
+  if (n.gov === "Monarchy" && n.avg > 14) n.stability -= 0.1;
   n.stability = Math.max(4, Math.min(100, n.stability));
 }
 
@@ -576,7 +589,7 @@ function culture() {
   }
   faith = next;
   for (const n of nations) {
-    if (n.gov !== "Temple" || !n.capital) continue;
+    if (n.gov !== "Theocracy" || !n.capital) continue;
     const wrong = cellsOf(n.id).filter(([x, y]) => faith[y][x] !== n.faith && hypot(x, y, n.capital) <= 4);
     if (!wrong.length) continue;
     wrong.sort((a, b) => hypot(a[0], a[1], n.capital) - hypot(b[0], b[1], n.capital));
@@ -602,16 +615,18 @@ function considerWar(n) {
     const reasons = [];
     const reclaim = lostBorder(n, other.id);
     if (reclaim >= 2) reasons.push([26 + reclaim, "to recover land it lost"]);
-    if (n.gov === "Temple" && n.faith !== other.faith && (n.unity || 0) > 0.8 && border >= 8) {
-      reasons.push([8, "to press its state cult"]);
+    if (n.gov === "Theocracy" && n.faith !== other.faith && (n.unity || 0) > 0.8 && border >= 8) {
+      reasons.push([7, "to press its state cult"]);
     }
     if (open < 4 && (n.people || 0) >= (other.people || 1) * 0.8) {
-      const boxed = n.gov === "Crown" ? 5 : n.gov === "Clans" ? 9 : 7;
+      const boxed = n.gov === "Monarchy" ? 5 : n.gov === "Dictatorship" ? 8 : 6;
       reasons.push([boxed, "because no empty land remains"]);
     }
-    if (n.gov === "Clans" && border >= 12 && open >= 4) reasons.push([6, "over a clan feud on the border"]);
-    if (n.gov === "League" && (other.wealth || 0) > (n.wealth || 0) * 1.12 && (other.coasts || 0) > (n.coasts || 0)) {
-      reasons.push([13, "to take its ports and trade"]);
+    if (n.gov === "Dictatorship" && border >= 8 && (n.people || 0) > (other.people || 1) * 1.2) {
+      reasons.push([9, "because the neighbor is weaker"]);
+    }
+    if (n.gov === "Republic" && (other.wealth || 0) > (n.wealth || 0) * 1.12 && (other.coasts || 0) > (n.coasts || 0)) {
+      reasons.push([12, "to take its ports and trade"]);
     }
     if (!reasons.length) {
       n.grievance[id] = Math.max(0, (n.grievance[id] || 0) - 10);
@@ -722,26 +737,27 @@ function considerRevolt(n) {
   const cells = cellsOf(n.id);
   if (cells.length < 80 || (n.reach || 0) < 16) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
   let pool, gain, why, babyGov;
-  if (n.gov === "Temple") {
+  if (n.gov === "Theocracy") {
     pool = cells.filter(([x, y]) => faith[y][x] !== n.faith && hypot(x, y, n.capital) >= Math.max(10, n.reach * 0.65));
     gain = 8;
     why = "will not accept the state cult";
-    babyGov = "Temple";
-  } else if (n.gov === "Clans") {
+    babyGov = "Theocracy";
+  } else if (n.gov === "Dictatorship") {
+    if (n.stability > 55 && n.reach < 22) { n.unrest = Math.max(0, (n.unrest || 0) - 8); return; }
     pool = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(11, n.reach * 0.72));
-    gain = 8;
-    why = "is too far for the clans to hold";
-    babyGov = "Clans";
-  } else if (n.gov === "League") {
+    gain = n.stability < 40 ? 10 : 5;
+    why = "stops obeying the dictatorship";
+    babyGov = "Dictatorship";
+  } else if (n.gov === "Republic") {
     pool = cells.filter(([x, y]) => !coast[y][x] && hypot(x, y, n.capital) >= Math.max(10, n.reach * 0.7) && (pop[y][x] || 0) < 2200);
     gain = 6;
-    why = "is inland, and the league does not spend on it";
-    babyGov = "Clans";
+    why = "is inland and poor, and the republic does not hold it";
+    babyGov = "Republic";
   } else if ((n.reach || 0) >= 24 && (n.avg || 0) >= 14) {
     pool = cells.filter(([x, y]) => hypot(x, y, n.capital) >= n.reach * 0.78);
     gain = 4;
-    why = "is farther than the crown can govern";
-    babyGov = "Crown";
+    why = "is farther than the monarchy can govern";
+    babyGov = "Monarchy";
   } else {
     n.unrest = Math.max(0, (n.unrest || 0) - 8);
     return;
@@ -897,7 +913,7 @@ function seedEmptyContinent() {
         const shore = nameRealm();
         const g = pickGov(sx, sy);
         const f = faith[sy][sx];
-        const n = found(sx, sy, shore, colors[ri(colors.length)], shore + " is founded on an empty shore, a " + g + " of the " + faithName(f) + ".", g, f);
+        const n = found(sx, sy, shore, colors[ri(colors.length)], shore + " is founded on an empty shore as " + govLabel(g).toLowerCase() + ".", g, f);
         claimDisk(n, 3);
         return;
       }
@@ -984,7 +1000,9 @@ function render() {
       const id = owner[y][x];
       const edge = coast && coast[y][x];
       let fill = edge ? "#243028" : "#354238";
-      if (id >= 0) {
+      if (mapMode === "faith" && faith) {
+        fill = tint(faithColor(faith[y][x] || 0), edge ? "#10140f" : "#ffffff", edge ? 0.35 : 0.08);
+      } else if (id >= 0) {
         const base = byId(id)?.color || "#888888";
         fill = edge ? tint(base, "#10140f", 0.28) : tint(base, "#ffffff", Math.max(0, Math.min(0.14, ((pop && pop[y][x]) || 1000) / 28000)));
       }
@@ -1009,7 +1027,7 @@ function render() {
     }
   }
   ctx.stroke();
-  ctx.strokeStyle = "rgba(8,10,14,0.72)";
+  ctx.strokeStyle = mapMode === "faith" ? "rgba(244,247,252,0.62)" : "rgba(8,10,14,0.72)";
   ctx.beginPath();
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
@@ -1077,70 +1095,94 @@ function row(label, value) {
 function situation(n) {
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ".";
-  if (n.gov === "League") return "A league. Its wealth is coastal trade. It does not keep a state faith.";
-  if (n.gov === "Temple") return "A temple, so this realm does keep a state cult. Most realms do not.";
-  if (n.gov === "Clans") return "Clans. A march breaks off when it is too far to hold, not because of faith.";
-  return "A crown. It taxes the heartland. The faith of a province is not the border.";
+  if (n.gov === "Republic") return "A democratic republic. People and trade are what it can spend.";
+  if (n.gov === "Theocracy") return "A theocracy. Rare. This state keeps a cult. The others do not.";
+  if (n.gov === "Dictatorship") return "A dictatorship. It pushes a weaker neighbor, and provinces leave if the center fails.";
+  return "A monarchy. It holds the heartland. A far march slips only if the realm is stretched thin.";
+}
+
+function faithCensus() {
+  const rows = (faithNames || []).map((name, i) => ({ name, color: faithColor(i), n: 0, people: 0 }));
+  if (!faith) return rows;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const i = faith[y][x] || 0;
+    if (!rows[i]) continue;
+    rows[i].n++;
+    rows[i].people += (pop && pop[y][x]) || 0;
+  }
+  return rows;
+}
+
+function chronicleHTML() {
+  return logLines.map(l => {
+    const i = l.indexOf(":");
+    const y = i < 0 ? "" : l.slice(0, i);
+    const t = i < 0 ? l : l.slice(i + 1).trim();
+    return '<div class="ev"><span>' + y + '</span><p>' + t + '</p></div>';
+  }).join("");
 }
 
 function drawUI() {
   document.getElementById("year").textContent = String(year);
   const count = document.getElementById("count");
   if (count) count.textContent = nations.length + " REALMS";
+  const pause = document.getElementById("pause");
+  if (pause) pause.textContent = paused ? "Resume" : "Pause";
+  const tabs = document.getElementById("tabs");
+  if (tabs && tabs.querySelectorAll) tabs.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  const layer = document.getElementById("layer");
+  if (layer && layer.querySelectorAll) layer.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.m === mapMode));
+  const panel = document.getElementById("panel");
+  if (!panel) return;
   const focus = byId(selected);
   const foe = focus && focus.atWar.size ? byId([...focus.atWar][0]) : null;
-  document.getElementById("focus").textContent = focus ? focus.name : "The world";
-  const sub = document.getElementById("subtitle");
-  if (sub) sub.textContent = focus
-    ? (focus.gov === "Temple" ? "Temple  ·  state cult " + faithName(focus.faith) : focus.gov + "  ·  no state faith")
-    : (continents || 0) + " continents  ·  " + (faithNames || []).join("  ·  ");
-  document.getElementById("blurb").textContent = focus
-    ? situation(focus)
-    : "Faith moves by neighborhood, across borders. Only a temple makes a state religion. Crowns, leagues, and clans are political.";
   const people = nations.reduce((s, n) => s + (n.people || 0), 0);
-  document.getElementById("stats").innerHTML = focus
-    ? '<div class="kicker sub">PEOPLE</div>'
-      + row("Population", fmt(focus.people))
-      + row("Provinces", focus.pops)
-      + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
-      + '<div class="kicker sub">ORDER</div>'
-      + row("Government", focus.gov)
-      + (focus.gov === "Temple"
-        ? row("State cult", faithName(focus.faith)) + row("Cult hold", Math.round((focus.unity || 0) * 100) + "%")
-        : row("Court custom", faithName(focus.faith)) + row("Faiths inside", focus.faiths || 1))
-      + row("Prosperity", fmt(focus.wealth))
-      + '<div class="kicker sub">STATE</div>'
-      + row("Stability", Math.round(focus.stability))
-      + row("Unrest", Math.round(focus.unrest || 0))
-      + row("Status", foe ? "War with " + foe.name : "At peace")
-    : '<div class="kicker sub">WORLD</div>'
+  if (tab === "world") {
+    let list = "";
+    [...nations].sort((a, b) => (b.people || 0) - (a.people || 0)).forEach(n => {
+      list += '<li class="' + (n.id === selected ? "on" : "") + '" data-id="' + n.id + '"><i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + fmt(n.people) + '</span></li>';
+    });
+    panel.innerHTML = '<div class="kicker sub">WORLD</div>'
       + row("Continents", continents || 0)
       + row("Realms", nations.length)
-      + row("Population", fmt(people));
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-  [...nations].sort((a, b) => (b.people || 0) - (a.people || 0)).slice(0, 12).forEach(n => {
-    const li = document.createElement("li");
-    if (n.id === selected) li.className = "on";
-    li.title = n.gov + " · " + faithName(n.faith);
-    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + fmt(n.people) + '</span>';
-    li.onclick = () => { selected = n.id; drawUI(); };
-    list.appendChild(li);
-  });
-  document.getElementById("log").innerHTML = logLines.map(l => {
-    const i = l.indexOf(":");
-    const y = i < 0 ? "" : l.slice(0, i);
-    const t = i < 0 ? l : l.slice(i + 1).trim();
-    return '<div class="ev"><span>' + y + '</span><p>' + t + '</p></div>';
-  }).join("");
-  document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
+      + row("Population", fmt(people))
+      + '<div class="kicker">REALMS</div><ul id="list">' + list + '</ul>';
+    panel.querySelectorAll("li").forEach(li => { li.onclick = () => { selected = Number(li.dataset.id); tab = "realm"; drawUI(); }; });
+  } else if (tab === "faith") {
+    const rows = faithCensus().map(f => '<li><i class="swatch" style="background:' + f.color + '"></i><span class="name">' + f.name + '</span><span class="num">' + f.n + '</span></li>').join("");
+    const cults = nations.filter(n => n.gov === "Theocracy").map(n => n.name + " (" + faithName(n.faith) + ")").join(", ");
+    panel.innerHTML = '<h2>Faith</h2><p id="blurb">An overlay, not a border. The same faith runs through more than one state. Use Faith in the header to put it on the map. White lines are still the states.</p>'
+      + '<div class="kicker">FAITHS</div><ul>' + rows + '</ul>'
+      + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy is uncommon.") + '</p>';
+  } else if (tab === "log") {
+    panel.innerHTML = '<div class="kicker">CHRONICLE</div><div id="log">' + chronicleHTML() + '</div>';
+  } else {
+    panel.innerHTML = focus
+      ? '<h2>' + focus.name + '</h2><p id="subtitle">' + govLabel(focus.gov) + '</p><p id="blurb">' + situation(focus) + '</p>'
+        + '<div class="kicker sub">PEOPLE</div>'
+        + row("Population", fmt(focus.people))
+        + row("Provinces", focus.pops)
+        + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
+        + '<div class="kicker sub">STATE</div>'
+        + row("Government", govLabel(focus.gov))
+        + (focus.gov === "Theocracy" ? row("State cult", faithName(focus.faith)) : "")
+        + row("Prosperity", fmt(focus.wealth))
+        + row("Stability", Math.round(focus.stability))
+        + row("Unrest", Math.round(focus.unrest || 0))
+        + row("Status", foe ? "War with " + foe.name : "At peace")
+      : '<h2>The world</h2><p id="blurb">Pick a realm on the map, or open World. Faith is a separate layer.</p>'
+        + row("Continents", continents || 0)
+        + row("Realms", nations.length)
+        + row("Population", fmt(people));
+  }
 }
 
 canvas.addEventListener("click", e => {
   const r = canvas.getBoundingClientRect();
   const x = Math.floor((e.clientX - r.left) / r.width * COLS);
   const y = Math.floor((e.clientY - r.top) / r.height * ROWS);
-  if (grid && grid[y] && grid[y][x] === LAND && owner[y][x] >= 0) selected = owner[y][x];
+  if (grid && grid[y] && grid[y][x] === LAND && owner[y][x] >= 0) { selected = owner[y][x]; tab = "realm"; }
   drawUI();
 });
 canvas.addEventListener("mousemove", e => {
@@ -1152,9 +1194,12 @@ canvas.addEventListener("mousemove", e => {
   let label = "Ocean";
   if (grid[y] && grid[y][x] === LAND) {
     const souls = fmt(pop && pop[y] ? pop[y][x] : 0);
-    if (owner[y][x] >= 0) {
+    if (mapMode === "faith") {
+      const who = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Unclaimed") : "Unclaimed";
+      label = faithName(faith ? faith[y][x] : 0) + "  ·  inside " + who;
+    } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
-      label = (n ? n.name : "Realm") + "  ·  " + (n ? n.gov : "") + "  ·  province faith " + faithName(faith ? faith[y][x] : 0) + "  ·  " + souls;
+      label = (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls;
     } else label = "Unclaimed  ·  " + souls;
   }
   tip.textContent = label;
@@ -1168,6 +1213,21 @@ canvas.addEventListener("mouseleave", () => {
 });
 document.getElementById("newmap").onclick = generate;
 document.getElementById("pause").onclick = () => { paused = !paused; drawUI(); };
+const tabsEl = document.getElementById("tabs");
+if (tabsEl) tabsEl.onclick = e => {
+  const b = e.target.closest && e.target.closest("button");
+  if (!b) return;
+  tab = b.dataset.tab;
+  drawUI();
+};
+const layerEl = document.getElementById("layer");
+if (layerEl) layerEl.onclick = e => {
+  const b = e.target.closest && e.target.closest("button");
+  if (!b) return;
+  mapMode = b.dataset.m;
+  drawUI();
+  render();
+};
 const speedBox = document.getElementById("speed");
 if (speedBox && speedBox.querySelectorAll) {
   speedBox.querySelectorAll("button").forEach(b => {
