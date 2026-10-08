@@ -111,6 +111,8 @@ function generate() {
     grid = next;
   }
   nations = [];
+  year = 800 + ri(400);
+  logLines = [];
   const spots = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
   const start = 6 + ri(4);
@@ -118,9 +120,8 @@ function generate() {
     const [x, y] = spots[ri(spots.length)];
     found(x, y, nameRealm(), colors[i % colors.length]);
   }
-  year = 800 + ri(400);
   selected = nations[0] ? nations[0].id : null;
-  logLines = ["A new age begins. Crowns are few, and the marches are empty."];
+  logLines = [year + ": A new age begins. Crowns are few, and the marches are empty."];
   acc = 0;
   render();
   drawUI();
@@ -137,6 +138,7 @@ function found(x, y, name, color) {
 }
 
 function chronicle(y, text) {
+  if (!logLines) logLines = [];
   logLines.unshift(y + ": " + text);
   logLines = logLines.slice(0, 12);
 }
@@ -262,7 +264,7 @@ function render() {
 }
 
 function drawUI() {
-  document.getElementById("year").textContent = "Year " + year + "  ·  " + nations.length + " realms";
+  document.getElementById("year").textContent = "Year " + year + "  \u00b7  " + nations.length + " realms";
   const focus = byId(selected);
   document.getElementById("focus").textContent = focus ? focus.name : "The world";
   document.getElementById("stats").innerHTML = focus
