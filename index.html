@@ -88,7 +88,7 @@
   <aside>
     <div class="kicker">SELECTED</div>
     <h2 id="focus">The world</h2>
-    <p id="blurb">Each realm favors a direction, so the frontier is uneven. Wars move that border. A breakaway still takes a whole province.</p>
+    <p id="blurb">Wars start for a reason: lost land, no room left, or a shaky neighbor. A realm is not cut in half. A revolt, when it happens, is a small far march.</p>
     <div id="stats"></div>
     <div class="kicker">REALMS</div>
     <ul id="list"></ul>
@@ -105,7 +105,7 @@ const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8f
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
-let grid, owner, nations, year, paused, selected, logLines, acc, seed, coast;
+let grid, owner, prev, nations, year, paused, selected, logLines, acc, seed, coast;
 let nextId = 1;
 let speed = 2;
 
@@ -162,6 +162,7 @@ function generate() {
   seed = (Date.now() % 2000000000) + 1;
   grid = Array.from({ length: ROWS }, () => Array(COLS).fill(WATER));
   owner = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   stamp(28 + ri(18), 28 + ri(14), 20 + ri(6), 14 + ri(4));
   stamp(72 + ri(16), 32 + ri(14), 18 + ri(6), 13 + ri(4));
   stamp(52 + ri(16), 40 + ri(12), 14 + ri(6), 10 + ri(4));
@@ -188,7 +189,8 @@ function generate() {
     const [x, y] = spots.splice(best, 1)[0];
     if (chosen.some(c => Math.hypot(x - c.x, y - c.y) < 12)) continue;
     chosen.push({ x, y });
-    const n = found(x, y, nameRealm(), colors[i % colors.length]);
+    const name = nameRealm();
+    const n = found(x, y, name, colors[i % colors.length], name + " is crowned in unsettled land.");
     claimDisk(n, 3);
   }
   selected = nations[0] ? nations[0].id : null;
@@ -200,17 +202,23 @@ function generate() {
   drawUI();
 }
 
-function found(x, y, name, color) {
+function found(x, y, name, color, why) {
   const id = nextId++;
   const n = {
     id, name, color, born: year || 1000, stability: 75 + ri(15), pops: 1,
-    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
+    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 120,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6
   };
   nations.push(n);
-  if (grid[y] && grid[y][x] === LAND) owner[y][x] = id;
-  chronicle(year || 1000, name + " is founded.");
+  if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
+  if (why) chronicle(year || 1000, why);
   return n;
+}
+
+function claim(x, y, id) {
+  if (!prev) prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  if (owner[y][x] !== id) prev[y][x] = owner[y][x];
+  owner[y][x] = id;
 }
 
 function claimDisk(n, r) {
@@ -218,7 +226,7 @@ function claimDisk(n, r) {
   for (let y = Math.max(0, c.y - r); y <= Math.min(ROWS - 1, c.y + r); y++) {
     for (let x = Math.max(0, c.x - r); x <= Math.min(COLS - 1, c.x + r); x++) {
       if (grid[y][x] !== LAND || owner[y][x] >= 0) continue;
-      if (hypot(x, y, c) <= r) owner[y][x] = n.id;
+      if (hypot(x, y, c) <= r) claim(x, y, n.id);
     }
   }
 }
@@ -226,7 +234,7 @@ function claimDisk(n, r) {
 function chronicle(y, text) {
   if (!logLines) logLines = [];
   logLines.unshift(y + ": " + text);
-  logLines = logLines.slice(0, 12);
+  logLines = logLines.slice(0, 16);
 }
 
 function byId(id) { return nations.find(n => n.id === id); }
@@ -242,13 +250,13 @@ function makePeace(a, b, years) {
   b.peace[a.id] = until;
 }
 
-function declareWar(n, foe) {
+function declareWar(n, foe, why) {
   if (!foe || n.atWar.size || foe.atWar.size || atPeace(n, foe.id)) return false;
   n.atWar.add(foe.id);
   foe.atWar.add(n.id);
-  n.wars[foe.id] = year;
-  foe.wars[n.id] = year;
-  chronicle(year, n.name + " goes to war with " + foe.name + ".");
+  n.wars[foe.id] = { year, pops: n.pops };
+  foe.wars[n.id] = { year, pops: foe.pops };
+  chronicle(year, why);
   return true;
 }
 
@@ -306,9 +314,9 @@ function step() {
     }
   }
   settleWars();
-  for (const n of nations.slice()) {
-    if (nations.includes(n) && n.pops > 70 && n.reach > 14 && n.stability < 36 && year >= (n.quietUntil || 0) && rnd() < 0.035) rebel(n);
-  }
+  for (const n of nations.slice()) considerCollapse(n);
+  nations = nations.filter(n => n.pops > 0);
+  for (const n of nations.slice()) considerRevolt(n);
   keepWhole();
   absorbTiny();
   if (year % 35 === 0) seedEmptyContinent();
@@ -345,10 +353,10 @@ function measure(n) {
     sy += y;
   }
   n.reach = maxD;
+  n.avg = sum / cells.length;
   n.label = { x: sx / cells.length, y: sy / cells.length };
-  const avg = sum / cells.length;
-  if (avg > 11) n.stability -= 0.12 + (avg - 11) * 0.04;
-  else n.stability += 0.18;
+  if (n.avg > 12) n.stability -= 0.1 + (n.avg - 12) * 0.035;
+  else n.stability += 0.2;
   if (n.atWar.size) n.stability -= 0.25;
   n.stability = Math.max(4, Math.min(100, n.stability));
 }
@@ -389,7 +397,7 @@ function grow(n) {
   for (let i = 0; i < take; i++) {
     const m = moves[i];
     if (owner[m.ty][m.tx] >= 0) continue;
-    owner[m.ty][m.tx] = n.id;
+    claim(m.tx, m.ty, n.id);
   }
 }
 
@@ -405,20 +413,51 @@ function borderCounts(n) {
   return counts;
 }
 
+function lostBorder(n, foeId) {
+  let c = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== foeId || prev[y][x] !== n.id) continue;
+    if (neighbors(x, y).some(([nx, ny]) => owner[ny][nx] === n.id)) c++;
+  }
+  return c;
+}
+
 function considerWar(n) {
   if (n.atWar.size) return;
   const open = emptyFrontier(n).length;
   const counts = borderCounts(n);
-  let foe = null, best = 0;
+  let best = null;
   for (const id of Object.keys(counts)) {
     const other = byId(Number(id));
-    if (!other || other.atWar.size || atPeace(n, other.id)) continue;
-    if (counts[id] > best) { best = counts[id]; foe = other; }
+    const border = counts[id];
+    if (!other || other.atWar.size || atPeace(n, other.id) || border < 5) continue;
+    const reclaim = lostBorder(n, other.id);
+    let cause = null;
+    let urge = 0;
+    if (reclaim >= 3) {
+      cause = n.name + " goes to war to take back land held by " + other.name + ".";
+      urge = 0.5;
+    } else if (open < 6 && border >= 8 && n.pops >= other.pops * 0.85) {
+      cause = n.name + ", short of empty land, makes war on " + other.name + ".";
+      urge = 0.22;
+    } else if (other.stability < 28 && border >= 6 && n.pops > other.pops * 1.1) {
+      cause = n.name + " attacks " + other.name + " while its rule is shaky.";
+      urge = 0.18;
+    }
+    if (!cause) continue;
+    const rank = urge * 10 + reclaim * 3 + border;
+    if (!best || rank > best.rank) best = { other, cause, urge, rank };
   }
-  if (!foe || best < 5) return;
-  const urge = n.bold || 0.6;
-  const chance = open > 20 ? 0.02 * urge : open > 6 ? 0.06 * urge : 0.14 * urge;
-  if (rnd() < chance) declareWar(n, foe);
+  if (best && rnd() < best.urge) declareWar(n, best.other, best.cause);
+}
+
+function severs(id, x, y) {
+  const cells = [];
+  for (let yy = 0; yy < ROWS; yy++) for (let xx = 0; xx < COLS; xx++) {
+    if (owner[yy][xx] === id && (xx !== x || yy !== y)) cells.push([xx, yy]);
+  }
+  if (cells.length < 2) return false;
+  return components(cells).length > 1;
 }
 
 function warPush(n) {
@@ -437,22 +476,30 @@ function warPush(n) {
         seen.add(k);
         let friends = 0;
         for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
-        cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital) });
+        cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital), reclaim: prev[ty][tx] === n.id ? 1 : 0 });
       }
     }
     const thick = cands.filter(c => c.friends >= 2);
-    const pool = thick.length ? thick : cands;
+    const pool = (thick.length ? thick : cands).slice();
     if (!pool.length) return;
-    pool.sort((a, b) => (b.friends - a.friends) || (a.d - b.d));
-    const m = pool[ri(Math.min(3, pool.length))];
-    const power = n.pops * (0.85 + n.stability / 400) + ri(10);
-    const defense = foe.pops * (0.85 + foe.stability / 400) + ri(10) + (m.tx === foe.capital.x && m.ty === foe.capital.y ? 18 : 0);
-    if (power + m.friends * 6 > defense) {
-      owner[m.ty][m.tx] = n.id;
-      foe.stability -= 0.8;
-    } else {
-      n.stability -= 0.5;
+    pool.sort((a, b) => (b.reclaim - a.reclaim) || (b.friends - a.friends) || (a.d - b.d));
+    let moved = false;
+    for (const m of pool) {
+      if (severs(foe.id, m.tx, m.ty)) continue;
+      const power = n.pops * (0.85 + n.stability / 400) + ri(10);
+      let defense = foe.pops * (0.85 + foe.stability / 400) + ri(10);
+      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense += 22;
+      if (m.reclaim) defense *= 0.6;
+      if (power + m.friends * 6 > defense) {
+        claim(m.tx, m.ty, n.id);
+        foe.stability -= 0.55;
+      } else {
+        n.stability -= 0.35;
+      }
+      moved = true;
+      break;
     }
+    if (!moved) return;
   }
 }
 
@@ -465,40 +512,77 @@ function settleWars() {
       seen.add(pair);
       const foe = byId(id);
       if (!foe) { n.atWar.delete(id); continue; }
-      const started = n.wars[id] || year;
+      const rec = n.wars[id] || { year, pops: n.pops };
+      const foeRec = foe.wars[n.id] || { year, pops: foe.pops };
       const border = borderCounts(n)[id] || 0;
-      if (year - started > 28 + (n.id % 16) || border < 2) {
-        makePeace(n, foe, 40 + ri(50));
-        chronicle(year, n.name + " makes peace with " + foe.name + ".");
-      }
+      const lostN = n.pops < rec.pops * 0.72;
+      const lostF = foe.pops < foeRec.pops * 0.72;
+      let why = "";
+      if (border < 2) why = n.name + " and " + foe.name + " no longer share a border. The fighting ends.";
+      else if (lostN) why = n.name + " sues for peace with " + foe.name + " after heavy losses.";
+      else if (lostF) why = foe.name + " sues for peace with " + n.name + " after heavy losses.";
+      else if (year - rec.year > 30 + (n.id % 14)) why = "The war between " + n.name + " and " + foe.name + " burns out.";
+      if (!why) continue;
+      makePeace(n, foe, 50 + ri(40));
+      chronicle(year, why);
     }
   }
 }
 
-function rebel(n) {
+function considerCollapse(n) {
+  if (!nations.includes(n) || !n.atWar.size || n.pops > 24 || n.stability > 24 || year - n.born < 30) return;
   const cells = cellsOf(n.id);
-  if (cells.length < 36) return;
-  const far = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(8, n.reach * 0.62));
-  if (far.length < 12) return;
-  const comps = components(far);
-  const chunk = comps.find(c => c.length >= 12 && c.length <= Math.floor(cells.length * 0.34));
-  if (!chunk) return;
-  const take = new Set(chunk.map(([x, y]) => key(x, y)));
-  const remain = cells.filter(([x, y]) => !take.has(key(x, y)));
-  if (components(remain).length !== 1 || remain.length < 20) return;
-  let hx = chunk[0][0], hy = chunk[0][1], hd = -1;
-  for (const [x, y] of chunk) {
+  if (cells.length < 2) return;
+  const who = annex(cells);
+  n.pops = 0;
+  chronicle(year, who
+    ? n.name + " breaks under the war. " + who.name + " occupies what remains."
+    : n.name + " breaks under the war, and the land lies empty.");
+}
+
+function considerRevolt(n) {
+  if (!nations.includes(n) || n.pops < 100 || n.reach < 18 || (n.avg || 0) < 13 || n.stability > 32) return;
+  if (year < (n.quietUntil || 0) || n.atWar.size) return;
+  const biggest = nations.reduce((m, o) => Math.max(m, o.pops), 0);
+  if (n.pops >= biggest && n.reach < 26) return;
+  const cells = cellsOf(n.id);
+  const far = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(12, n.reach * 0.7));
+  const cap = Math.min(16, Math.floor(n.pops * 0.06));
+  if (cap < 8 || far.length < 8) return;
+  const farSet = new Set(far.map(([x, y]) => key(x, y)));
+  let hx = far[0][0], hy = far[0][1], hd = -1;
+  for (const [x, y] of far) {
     const d = hypot(x, y, n.capital);
     if (d > hd) { hd = d; hx = x; hy = y; }
   }
-  const baby = found(hx, hy, nameRealm(), colors[ri(colors.length)]);
-  for (const [x, y] of chunk) owner[y][x] = baby.id;
+  const blob = [];
+  const seen = new Set([key(hx, hy)]);
+  const q = [[hx, hy]];
+  while (q.length && blob.length < cap) {
+    q.sort((a, b) => hypot(b[0], b[1], n.capital) - hypot(a[0], a[1], n.capital));
+    const [x, y] = q.shift();
+    blob.push([x, y]);
+    for (const [nx, ny] of neighbors(x, y)) {
+      const k = key(nx, ny);
+      if (seen.has(k) || !farSet.has(k)) continue;
+      seen.add(k);
+      q.push([nx, ny]);
+    }
+  }
+  if (blob.length < 8) return;
+  const take = new Set(blob.map(([x, y]) => key(x, y)));
+  const remain = cells.filter(([x, y]) => !take.has(key(x, y)));
+  if (components(remain).length !== 1 || remain.length < n.pops * 0.85) return;
+  const misery = (32 - n.stability) / 32 + (n.reach - 18) / 24;
+  if (rnd() > 0.025 * (1 + misery)) return;
+  const babyName = nameRealm();
+  const baby = found(hx, hy, babyName, colors[ri(colors.length)], "Far from the capital, a march of " + n.name + " breaks away as " + babyName + ".");
+  for (const [x, y] of blob) claim(x, y, baby.id);
   baby.capital = { x: hx, y: hy };
-  baby.quietUntil = year + 160;
-  n.stability = Math.min(82, n.stability + 18);
-  n.quietUntil = year + 160;
-  makePeace(n, baby, 70 + ri(40));
-  chronicle(year, baby.name + " breaks from " + n.name + ".");
+  baby.quietUntil = year + 200;
+  n.stability = Math.min(78, n.stability + 16);
+  n.quietUntil = year + 200;
+  makePeace(n, baby, 90);
 }
 
 function keepWhole() {
@@ -520,21 +604,15 @@ function keepWhole() {
     n.capital = { x: best[0], y: best[1] };
     for (let i = 1; i < comps.length; i++) {
       const chunk = comps[i];
-      if (chunk.length >= 18 && n.pops - chunk.length >= 18 && year >= (n.quietUntil || 0) && n.stability < 42) {
-        let hx = chunk[0][0], hy = chunk[0][1], hd = -1;
-        for (const [x, y] of chunk) {
-          const d = hypot(x, y, n.capital);
-          if (d > hd) { hd = d; hx = x; hy = y; }
-        }
-        const baby = found(hx, hy, nameRealm(), colors[ri(colors.length)]);
-        for (const [x, y] of chunk) owner[y][x] = baby.id;
-        baby.capital = { x: hx, y: hy };
-        baby.quietUntil = year + 140;
-        n.quietUntil = year + 140;
-        makePeace(n, baby, 60);
-        chronicle(year, baby.name + " is cut off from " + n.name + ".");
+      if (chunk.length <= 12) {
+        const who = annex(chunk);
+        if (who && chunk.length >= 4) chronicle(year, who.name + " occupies ground cut off from " + n.name + ".");
       } else {
-        annex(chunk);
+        peel(chunk, 3);
+        if (!n.severNote || year > n.severNote) {
+          chronicle(year, n.name + " is cut off from part of its land. Neighbors occupy it. No new crown is raised.");
+          n.severNote = year + 40;
+        }
       }
     }
   }
@@ -552,16 +630,38 @@ function annex(chunk) {
   }
   let best = -1, bestN = 0;
   for (const id of Object.keys(counts)) if (counts[id] > bestN) { bestN = counts[id]; best = Number(id); }
-  for (const [x, y] of chunk) owner[y][x] = best;
+  for (const [x, y] of chunk) claim(x, y, best);
+  return best >= 0 ? byId(best) : null;
+}
+
+function peel(chunk, limit) {
+  const mine = new Set(chunk.map(([x, y]) => key(x, y)));
+  const edge = [];
+  for (const [x, y] of chunk) {
+    for (const [nx, ny] of neighbors(x, y)) {
+      if (mine.has(key(nx, ny))) continue;
+      const o = owner[ny][nx];
+      if (o >= 0) edge.push([x, y, o]);
+    }
+  }
+  const seen = new Set();
+  let k = 0;
+  for (const [x, y, o] of edge) {
+    const kk = key(x, y);
+    if (seen.has(kk)) continue;
+    seen.add(kk);
+    claim(x, y, o);
+    if (++k >= limit) break;
+  }
 }
 
 function absorbTiny() {
   for (const n of nations.slice()) {
-    if (n.pops >= 8 || year - n.born < 40) continue;
+    if (!nations.includes(n) || n.pops >= 8 || year - n.born < 50) continue;
     const cells = cellsOf(n.id);
     if (!cells.length) continue;
-    annex(cells);
-    chronicle(year, n.name + " fades.");
+    const who = annex(cells);
+    chronicle(year, who ? n.name + " is too small to stand. " + who.name + " absorbs it." : n.name + " fades into empty land.");
     n.pops = 0;
   }
   nations = nations.filter(n => n.pops > 0);
@@ -586,7 +686,8 @@ function seedEmptyContinent() {
       }
       if (owned === 0 && blob.length >= 40 && nations.length < 14) {
         const [sx, sy] = blob[Math.floor(blob.length / 2)];
-        const n = found(sx, sy, nameRealm(), colors[ri(colors.length)]);
+        const shore = nameRealm();
+        const n = found(sx, sy, shore, colors[ri(colors.length)], shore + " is founded on an empty shore, with no crown nearby.");
         claimDisk(n, 3);
         return;
       }
