@@ -88,7 +88,7 @@
   <aside>
     <div class="kicker">SELECTED</div>
     <h2 id="focus">The world</h2>
-    <p id="blurb">Names sit on the larger realms. A white ring is a capital. Borders move when a war starts.</p>
+    <p id="blurb">Each realm favors a direction, so the frontier is uneven. Wars move that border. A breakaway still takes a whole province.</p>
     <div id="stats"></div>
     <div class="kicker">REALMS</div>
     <ul id="list"></ul>
@@ -204,7 +204,8 @@ function found(x, y, name, color) {
   const id = nextId++;
   const n = {
     id, name, color, born: year || 1000, stability: 75 + ri(15), pops: 1,
-    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80
+    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
+    bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6
   };
   nations.push(n);
   if (grid[y] && grid[y][x] === LAND) owner[y][x] = id;
@@ -306,7 +307,7 @@ function step() {
   }
   settleWars();
   for (const n of nations.slice()) {
-    if (nations.includes(n) && n.pops > 48 && n.reach > 16 && n.stability < 30 && year >= (n.quietUntil || 0) && rnd() < 0.03) rebel(n);
+    if (nations.includes(n) && n.pops > 70 && n.reach > 14 && n.stability < 36 && year >= (n.quietUntil || 0) && rnd() < 0.035) rebel(n);
   }
   keepWhole();
   absorbTiny();
@@ -370,18 +371,25 @@ function emptyFrontier(n) {
 }
 
 function grow(n) {
-  const moves = emptyFrontier(n).filter(m => m.d <= Math.max(4, n.reach + 2.2));
+  let moves = emptyFrontier(n);
   if (!moves.length) return;
-  moves.sort((a, b) => (b.friends - a.friends) || (a.d - b.d));
-  const take = Math.min(moves.length, moves.length > 10 ? 2 : 1);
+  const thick = moves.filter(m => m.friends >= 2);
+  if (thick.length > 2) moves = thick;
+  const reach = Math.max(3, n.reach || 3);
+  const bx = Math.cos(n.bearing || 0), by = Math.sin(n.bearing || 0);
+  for (const m of moves) {
+    const dx = m.tx - n.capital.x, dy = m.ty - n.capital.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const align = (dx / len) * bx + (dy / len) * by;
+    const stretch = m.d > reach + 3 ? -2 : 0;
+    m.score = m.friends * 3.2 + align * (n.drive || 0.5) * 2.2 + stretch + rnd();
+  }
+  moves.sort((a, b) => b.score - a.score);
+  const take = Math.min(moves.length, moves.length > 22 ? 3 : moves.length > 8 ? 2 : 1);
   for (let i = 0; i < take; i++) {
-    const open = moves.filter(m => owner[m.ty][m.tx] < 0);
-    if (!open.length) break;
-    const bestFriends = open.reduce((m, c) => Math.max(m, c.friends), 0);
-    const pool = open.filter(m => m.friends === bestFriends).sort((a, b) => a.d - b.d).slice(0, 4);
-    const m = pool[ri(pool.length)];
+    const m = moves[i];
+    if (owner[m.ty][m.tx] >= 0) continue;
     owner[m.ty][m.tx] = n.id;
-    n.stability = Math.min(100, n.stability + 0.15);
   }
 }
 
@@ -407,8 +415,9 @@ function considerWar(n) {
     if (!other || other.atWar.size || atPeace(n, other.id)) continue;
     if (counts[id] > best) { best = counts[id]; foe = other; }
   }
-  if (!foe || best < 6) return;
-  const chance = open > 14 ? 0.015 : open > 4 ? 0.045 : 0.09;
+  if (!foe || best < 5) return;
+  const urge = n.bold || 0.6;
+  const chance = open > 20 ? 0.02 * urge : open > 6 ? 0.06 * urge : 0.14 * urge;
   if (rnd() < chance) declareWar(n, foe);
 }
 
@@ -416,30 +425,34 @@ function warPush(n) {
   const foeId = [...n.atWar][0];
   const foe = byId(foeId);
   if (!foe) { n.atWar.clear(); return; }
-  const cands = [];
-  const seen = new Set();
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    if (owner[y][x] !== n.id) continue;
-    for (const [tx, ty] of neighbors(x, y)) {
-      const k = key(tx, ty);
-      if (seen.has(k) || owner[ty][tx] !== foe.id) continue;
-      seen.add(k);
-      let friends = 0;
-      for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
-      cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital) });
+  const grabs = n.pops + 8 >= foe.pops ? 2 : 1;
+  for (let g = 0; g < grabs; g++) {
+    const cands = [];
+    const seen = new Set();
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (owner[y][x] !== n.id) continue;
+      for (const [tx, ty] of neighbors(x, y)) {
+        const k = key(tx, ty);
+        if (seen.has(k) || owner[ty][tx] !== foe.id) continue;
+        seen.add(k);
+        let friends = 0;
+        for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
+        cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital) });
+      }
     }
-  }
-  if (!cands.length) return;
-  const maxF = cands.reduce((m, c) => Math.max(m, c.friends), 0);
-  const top = cands.filter(c => c.friends === maxF).sort((a, b) => a.d - b.d).slice(0, 3);
-  const m = top[ri(top.length)];
-  const power = n.pops + ri(8);
-  const defense = foe.pops + ri(8) + (m.tx === foe.capital.x && m.ty === foe.capital.y ? 12 : 0);
-  if (power + m.friends * 4 > defense) {
-    owner[m.ty][m.tx] = n.id;
-    foe.stability -= 1.2;
-  } else {
-    n.stability -= 0.6;
+    const thick = cands.filter(c => c.friends >= 2);
+    const pool = thick.length ? thick : cands;
+    if (!pool.length) return;
+    pool.sort((a, b) => (b.friends - a.friends) || (a.d - b.d));
+    const m = pool[ri(Math.min(3, pool.length))];
+    const power = n.pops * (0.85 + n.stability / 400) + ri(10);
+    const defense = foe.pops * (0.85 + foe.stability / 400) + ri(10) + (m.tx === foe.capital.x && m.ty === foe.capital.y ? 18 : 0);
+    if (power + m.friends * 6 > defense) {
+      owner[m.ty][m.tx] = n.id;
+      foe.stability -= 0.8;
+    } else {
+      n.stability -= 0.5;
+    }
   }
 }
 
@@ -454,7 +467,7 @@ function settleWars() {
       if (!foe) { n.atWar.delete(id); continue; }
       const started = n.wars[id] || year;
       const border = borderCounts(n)[id] || 0;
-      if (year - started > 16 + (n.id % 11) || border < 2) {
+      if (year - started > 28 + (n.id % 16) || border < 2) {
         makePeace(n, foe, 40 + ri(50));
         chronicle(year, n.name + " makes peace with " + foe.name + ".");
       }
