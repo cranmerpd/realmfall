@@ -48,7 +48,7 @@
   <canvas id="map"></canvas>
   <aside>
     <h2 id="focus">The world</h2>
-    <div class="muted" id="blurb">Dark marks are capitals. Realms grow outward from home. A long reach makes the frontier break off into a new realm.</div>
+    <div class="muted" id="blurb">Dark marks are capitals. Realms fill nearby land, then fight along the border. A breakaway is rare and takes a whole frontier.</div>
     <div class="stat" id="stats"></div>
     <ul id="list"></ul>
     <div id="log"></div>
@@ -64,11 +64,14 @@ const colors = ["#c45c4a","#d4a017","#3d8c6e","#4f6d9a","#a85c8a","#c47a3a","#6e
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, nations, year, paused, selected, logLines, acc, seed;
+let nextId = 1;
 
 function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
 function ri(n) { return Math.floor(rnd() * n); }
 function pick(a) { return a[ri(a.length)]; }
 function nameRealm() { return pick(prefixes) + pick(suffixes); }
+function hypot(x, y, c) { const dx = x - c.x, dy = y - c.y; return Math.sqrt(dx * dx + dy * dy); }
+function key(x, y) { return y * COLS + x; }
 
 function resize() {
   const r = canvas.getBoundingClientRect();
@@ -86,46 +89,52 @@ function neighbors(x, y) {
   return n;
 }
 
-function hypot(x, y, c) {
-  const dx = x - c.x, dy = y - c.y;
-  return Math.sqrt(dx * dx + dy * dy);
+function stamp(cx, cy, rx, ry) {
+  const y0 = Math.max(1, Math.floor(cy - ry - 1));
+  const y1 = Math.min(ROWS - 2, Math.ceil(cy + ry + 1));
+  const x0 = Math.max(1, Math.floor(cx - rx - 1));
+  const x1 = Math.min(COLS - 2, Math.ceil(cx + rx + 1));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const nx = (x - cx) / rx, ny = (y - cy) / ry;
+      if (nx * nx + ny * ny < 1 + (rnd() - 0.5) * 0.45) grid[y][x] = LAND;
+    }
+  }
+}
+
+function smoothLand() {
+  const next = grid.map(row => row.slice());
+  for (let y = 1; y < ROWS - 1; y++) {
+    for (let x = 1; x < COLS - 1; x++) {
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c += grid[y + dy][x + dx] === LAND;
+      if (c >= 6) next[y][x] = LAND;
+      else if (c <= 3) next[y][x] = WATER;
+    }
+  }
+  grid = next;
 }
 
 function generate() {
   seed = (Date.now() % 2000000000) + 1;
   grid = Array.from({ length: ROWS }, () => Array(COLS).fill(WATER));
   owner = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
-  for (let i = 0; i < 7; i++) {
-    let x = 8 + ri(COLS - 16), y = 6 + ri(ROWS - 12);
-    for (let s = 0; s < 900; s++) {
-      grid[y][x] = LAND;
-      const dir = ri(4);
-      x = Math.max(2, Math.min(COLS - 3, x + [1, -1, 0, 0][dir]));
-      y = Math.max(2, Math.min(ROWS - 3, y + [0, 0, 1, -1][dir]));
-    }
-  }
-  for (let p = 0; p < 4; p++) {
-    const next = grid.map(row => row.slice());
-    for (let y = 1; y < ROWS - 1; y++) {
-      for (let x = 1; x < COLS - 1; x++) {
-        let c = 0;
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c += grid[y + dy][x + dx] === LAND;
-        next[y][x] = c >= 5 ? LAND : WATER;
-      }
-    }
-    grid = next;
-  }
+  stamp(28 + ri(18), 28 + ri(14), 20 + ri(6), 14 + ri(4));
+  stamp(72 + ri(16), 32 + ri(14), 18 + ri(6), 13 + ri(4));
+  stamp(52 + ri(16), 40 + ri(12), 14 + ri(6), 10 + ri(4));
+  if (rnd() < 0.65) stamp(18 + ri(80), 14 + ri(48), 5 + ri(3), 4 + ri(2));
+  for (let p = 0; p < 3; p++) smoothLand();
   nations = [];
   nextId = 1;
   year = 800 + ri(400);
   logLines = [];
   const spots = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
-  const start = 6 + ri(4);
+  const start = 5 + ri(3);
   const chosen = [];
   for (let i = 0; i < start && spots.length; i++) {
     let best = 0, bestScore = -1;
-    const tries = Math.min(48, spots.length);
+    const tries = Math.min(60, spots.length);
     for (let t = 0; t < tries; t++) {
       const j = ri(spots.length);
       const [x, y] = spots[j];
@@ -134,27 +143,39 @@ function generate() {
       if (score > bestScore) { bestScore = score; best = j; }
     }
     const [x, y] = spots.splice(best, 1)[0];
+    if (chosen.some(c => Math.hypot(x - c.x, y - c.y) < 12)) continue;
     chosen.push({ x, y });
-    found(x, y, nameRealm(), colors[i % colors.length]);
+    const n = found(x, y, nameRealm(), colors[i % colors.length]);
+    claimDisk(n, 3);
   }
   selected = nations[0] ? nations[0].id : null;
-  logLines = [year + ": A new age begins. Crowns are few, and the marches are empty."];
+  logLines = [year + ": A new age begins. The crowns are few, and the empty land is wide."];
   acc = 0;
+  recount();
   render();
   drawUI();
 }
 
-let nextId = 1;
 function found(x, y, name, color) {
   const id = nextId++;
   const n = {
-    id, name, color, born: year || 1000, stability: 72 + ri(20), pops: 1,
-    capital: { x, y }, atWar: new Set(), peace: {}, wars: {}
+    id, name, color, born: year || 1000, stability: 75 + ri(15), pops: 1,
+    capital: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80
   };
   nations.push(n);
   if (grid[y] && grid[y][x] === LAND) owner[y][x] = id;
   chronicle(year || 1000, name + " is founded.");
   return n;
+}
+
+function claimDisk(n, r) {
+  const c = n.capital;
+  for (let y = Math.max(0, c.y - r); y <= Math.min(ROWS - 1, c.y + r); y++) {
+    for (let x = Math.max(0, c.x - r); x <= Math.min(COLS - 1, c.x + r); x++) {
+      if (grid[y][x] !== LAND || owner[y][x] >= 0) continue;
+      if (hypot(x, y, c) <= r) owner[y][x] = n.id;
+    }
+  }
 }
 
 function chronicle(y, text) {
@@ -164,7 +185,6 @@ function chronicle(y, text) {
 }
 
 function byId(id) { return nations.find(n => n.id === id); }
-
 function atPeace(n, id) { return (n.peace[id] || 0) > year; }
 
 function makePeace(a, b, years) {
@@ -172,12 +192,13 @@ function makePeace(a, b, years) {
   b.atWar.delete(a.id);
   delete a.wars[b.id];
   delete b.wars[a.id];
-  a.peace[b.id] = year + years;
-  b.peace[a.id] = year + years;
+  const until = year + years;
+  a.peace[b.id] = until;
+  b.peace[a.id] = until;
 }
 
 function declareWar(n, foe) {
-  if (!foe || n.atWar.has(foe.id) || atPeace(n, foe.id)) return false;
+  if (!foe || n.atWar.size || foe.atWar.size || atPeace(n, foe.id)) return false;
   n.atWar.add(foe.id);
   foe.atWar.add(n.id);
   n.wars[foe.id] = year;
@@ -186,51 +207,90 @@ function declareWar(n, foe) {
   return true;
 }
 
-function step() {
-  year++;
+function cellsOf(id) {
+  const cells = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (owner[y][x] === id) cells.push([x, y]);
+  return cells;
+}
+
+function components(cells) {
+  const set = new Set(cells.map(([x, y]) => key(x, y)));
+  const seen = new Set();
+  const comps = [];
+  for (const [x, y] of cells) {
+    const k0 = key(x, y);
+    if (seen.has(k0)) continue;
+    const comp = [];
+    const q = [[x, y]];
+    seen.add(k0);
+    while (q.length) {
+      const [cx, cy] = q.shift();
+      comp.push([cx, cy]);
+      for (const [nx, ny] of neighbors(cx, cy)) {
+        const k = key(nx, ny);
+        if (!seen.has(k) && set.has(k)) { seen.add(k); q.push([nx, ny]); }
+      }
+    }
+    comps.push(comp);
+  }
+  comps.sort((a, b) => b.length - a.length);
+  return comps;
+}
+
+function recount() {
   for (const n of nations) n.pops = 0;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const id = owner[y][x];
     if (id >= 0) { const n = byId(id); if (n) n.pops++; }
   }
-  nations = nations.filter(n => n.pops > 0 || n.born === year);
+  nations = nations.filter(n => n.pops > 0);
+}
+
+function step() {
+  year++;
+  recount();
   const claimants = nations.slice();
   for (const n of claimants) {
     if (!nations.includes(n) || n.pops === 0) continue;
+    settleCapital(n);
     measure(n);
-    const tries = 1 + (n.pops > 36 ? 1 : 0);
-    for (let t = 0; t < tries; t++) expand(n);
-    settleWars(n);
-    n.stability = Math.max(4, Math.min(100, n.stability));
-    if (n.pops > 28 && n.reach > 11 && n.stability < 40 && (n.quietUntil || 0) <= year && rnd() < (42 - n.stability) / 140) rebel(n);
-  }
-  for (const n of nations) {
-    if (!n.capital || owner[n.capital.y][n.capital.x] === n.id) continue;
-    const cells = cellsOf(n.id);
-    if (!cells.length) continue;
-    let best = cells[0], bestD = Infinity;
-    for (const [x, y] of cells) {
-      const d = hypot(x, y, n.capital);
-      if (d < bestD) { bestD = d; best = [x, y]; }
+    if (n.atWar.size) warPush(n);
+    else {
+      grow(n);
+      considerWar(n);
     }
-    n.capital = { x: best[0], y: best[1] };
   }
-  if (year % 40 === 0 && nations.length < 3 && rnd() < 0.8) seedWanderer();
+  settleWars();
+  for (const n of nations.slice()) {
+    if (nations.includes(n) && n.pops > 48 && n.reach > 16 && n.stability < 30 && year >= (n.quietUntil || 0) && rnd() < 0.03) rebel(n);
+  }
+  keepWhole();
+  absorbTiny();
+  if (year % 35 === 0) seedEmptyContinent();
+  recount();
+  for (const n of nations) settleCapital(n);
   drawUI();
+}
+
+function settleCapital(n) {
+  if (n.capital && owner[n.capital.y] && owner[n.capital.y][n.capital.x] === n.id) return;
+  const cells = cellsOf(n.id);
+  if (!cells.length) return;
+  const comps = components(cells);
+  const main = comps[0];
+  let best = main[0], bestD = Infinity;
+  const origin = n.capital || { x: best[0], y: best[1] };
+  for (const [x, y] of main) {
+    const d = hypot(x, y, origin);
+    if (d < bestD) { bestD = d; best = [x, y]; }
+  }
+  n.capital = { x: best[0], y: best[1] };
 }
 
 function measure(n) {
   const cells = cellsOf(n.id);
   n.pops = cells.length;
   if (!cells.length) { n.reach = 0; return; }
-  if (owner[n.capital.y][n.capital.x] !== n.id) {
-    let best = cells[0], bestD = Infinity;
-    for (const [x, y] of cells) {
-      const d = hypot(x, y, n.capital);
-      if (d < bestD) { bestD = d; best = [x, y]; }
-    }
-    n.capital = { x: best[0], y: best[1] };
-  }
   let maxD = 0, sum = 0;
   for (const [x, y] of cells) {
     const d = hypot(x, y, n.capital);
@@ -239,143 +299,239 @@ function measure(n) {
   }
   n.reach = maxD;
   const avg = sum / cells.length;
-  if (avg > 7) n.stability -= 0.35 + (avg - 7) * 0.12;
-  else n.stability += 0.25;
+  if (avg > 11) n.stability -= 0.12 + (avg - 11) * 0.04;
+  else n.stability += 0.18;
+  if (n.atWar.size) n.stability -= 0.25;
+  n.stability = Math.max(4, Math.min(100, n.stability));
 }
 
-function cellsOf(id) {
-  const cells = [];
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (owner[y][x] === id) cells.push([x, y]);
-  return cells;
-}
-
-function movesFrom(n) {
-  const empty = [], enemy = [];
+function emptyFrontier(n) {
+  const moves = [];
   const seen = new Set();
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (owner[y][x] !== n.id) continue;
     for (const [tx, ty] of neighbors(x, y)) {
-      const key = ty * COLS + tx;
-      if (seen.has(key) || grid[ty][tx] !== LAND || owner[ty][tx] === n.id) continue;
-      seen.add(key);
-      const move = { tx, ty, d: hypot(tx, ty, n.capital), o: owner[ty][tx] };
-      if (move.o < 0) empty.push(move);
-      else enemy.push(move);
+      const k = key(tx, ty);
+      if (seen.has(k) || grid[ty][tx] !== LAND || owner[ty][tx] >= 0) continue;
+      seen.add(k);
+      let friends = 0;
+      for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
+      moves.push({ tx, ty, d: hypot(tx, ty, n.capital), friends });
     }
   }
-  return { empty, enemy };
+  return moves;
 }
 
-function pickClose(moves) {
-  let maxD = 0;
-  for (const m of moves) if (m.d > maxD) maxD = m.d;
-  const weights = moves.map(m => (maxD - m.d) + maxD * 0.2 + 0.01);
-  let total = 0;
-  for (const w of weights) total += w;
-  let r = rnd() * total;
-  for (let i = 0; i < moves.length; i++) {
-    r -= weights[i];
-    if (r <= 0) return moves[i];
+function grow(n) {
+  const moves = emptyFrontier(n).filter(m => m.d <= Math.max(4, n.reach + 2.2));
+  if (!moves.length) return;
+  moves.sort((a, b) => (b.friends - a.friends) || (a.d - b.d));
+  const take = Math.min(moves.length, moves.length > 10 ? 2 : 1);
+  for (let i = 0; i < take; i++) {
+    const open = moves.filter(m => owner[m.ty][m.tx] < 0);
+    if (!open.length) break;
+    const bestFriends = open.reduce((m, c) => Math.max(m, c.friends), 0);
+    const pool = open.filter(m => m.friends === bestFriends).sort((a, b) => a.d - b.d).slice(0, 4);
+    const m = pool[ri(pool.length)];
+    owner[m.ty][m.tx] = n.id;
+    n.stability = Math.min(100, n.stability + 0.15);
   }
-  return moves[moves.length - 1];
 }
 
-function expand(n) {
-  const { empty, enemy } = movesFrom(n);
-  const near = empty.filter(m => m.d <= n.reach + 3.5);
-  const pool = near.length ? near : empty;
-  if (pool.length && (rnd() < 0.82 || !enemy.length)) {
-    const m = pickClose(pool);
-    owner[m.ty][m.tx] = n.id;
-    n.stability = Math.min(100, n.stability + 0.4);
-    return;
+function borderCounts(n) {
+  const counts = {};
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== n.id) continue;
+    for (const [tx, ty] of neighbors(x, y)) {
+      const o = owner[ty][tx];
+      if (o >= 0 && o !== n.id) counts[o] = (counts[o] || 0) + 1;
+    }
   }
-  if (!enemy.length) return;
-  const friendly = enemy.filter(m => !atPeace(n, m.o));
-  if (!friendly.length) return;
-  const m = pickClose(friendly);
-  const foe = byId(m.o);
-  if (!foe) { owner[m.ty][m.tx] = n.id; return; }
-  if (foe.pops <= 4 && !atPeace(n, foe.id)) {
-    owner[m.ty][m.tx] = n.id;
-    if (foe.pops <= 1) chronicle(year, n.name + " absorbs " + foe.name + ".");
-    return;
+  return counts;
+}
+
+function considerWar(n) {
+  if (n.atWar.size) return;
+  const open = emptyFrontier(n).length;
+  const counts = borderCounts(n);
+  let foe = null, best = 0;
+  for (const id of Object.keys(counts)) {
+    const other = byId(Number(id));
+    if (!other || other.atWar.size || atPeace(n, other.id)) continue;
+    if (counts[id] > best) { best = counts[id]; foe = other; }
   }
-  if (!n.atWar.has(foe.id)) {
-    const border = enemy.filter(e => e.o === foe.id).length;
-    if (border < 3 || rnd() > 0.35) return;
-    declareWar(n, foe);
+  if (!foe || best < 6) return;
+  const chance = open > 14 ? 0.015 : open > 4 ? 0.045 : 0.09;
+  if (rnd() < chance) declareWar(n, foe);
+}
+
+function warPush(n) {
+  const foeId = [...n.atWar][0];
+  const foe = byId(foeId);
+  if (!foe) { n.atWar.clear(); return; }
+  const cands = [];
+  const seen = new Set();
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== n.id) continue;
+    for (const [tx, ty] of neighbors(x, y)) {
+      const k = key(tx, ty);
+      if (seen.has(k) || owner[ty][tx] !== foe.id) continue;
+      seen.add(k);
+      let friends = 0;
+      for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
+      cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital) });
+    }
   }
-  const power = n.pops + 4 + ri(6);
-  const defense = foe.pops + ri(6);
-  if (power > defense || m.d + 2 < hypot(m.tx, m.ty, foe.capital)) {
+  if (!cands.length) return;
+  const maxF = cands.reduce((m, c) => Math.max(m, c.friends), 0);
+  const top = cands.filter(c => c.friends === maxF).sort((a, b) => a.d - b.d).slice(0, 3);
+  const m = top[ri(top.length)];
+  const power = n.pops + ri(8);
+  const defense = foe.pops + ri(8) + (m.tx === foe.capital.x && m.ty === foe.capital.y ? 12 : 0);
+  if (power + m.friends * 4 > defense) {
     owner[m.ty][m.tx] = n.id;
-    foe.stability -= 3;
+    foe.stability -= 1.2;
   } else {
-    n.stability -= 1.5;
+    n.stability -= 0.6;
   }
 }
 
-function settleWars(n) {
-  for (const id of [...n.atWar]) {
-    const foe = byId(id);
-    if (!foe || foe.pops === 0) { n.atWar.delete(id); delete n.wars[id]; continue; }
-    const started = n.wars[id] || year;
-    const border = movesFrom(n).enemy.filter(e => e.o === id).length;
-    if (year - started > 10 + (n.id % 7) || border < 1) {
-      makePeace(n, foe, 30 + ri(40));
-      chronicle(year, n.name + " makes peace with " + foe.name + ".");
+function settleWars() {
+  const seen = new Set();
+  for (const n of nations) {
+    for (const id of [...n.atWar]) {
+      const pair = n.id < id ? n.id + ":" + id : id + ":" + n.id;
+      if (seen.has(pair)) continue;
+      seen.add(pair);
+      const foe = byId(id);
+      if (!foe) { n.atWar.delete(id); continue; }
+      const started = n.wars[id] || year;
+      const border = borderCounts(n)[id] || 0;
+      if (year - started > 16 + (n.id % 11) || border < 2) {
+        makePeace(n, foe, 40 + ri(50));
+        chronicle(year, n.name + " makes peace with " + foe.name + ".");
+      }
     }
   }
 }
 
 function rebel(n) {
   const cells = cellsOf(n.id);
-  if (cells.length < 14) return;
-  const far = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(5, n.reach * 0.55));
-  if (far.length < 5) return;
-  let seed = far[0], sd = -1;
-  for (const [x, y] of far) {
-    const d = hypot(x, y, n.capital);
-    if (d > sd) { sd = d; seed = [x, y]; }
-  }
-  const farSet = new Set(far.map(([x, y]) => y * COLS + x));
-  const take = new Set([seed[1] * COLS + seed[0]]);
-  const queue = [seed];
-  const cap = Math.min(far.length, Math.max(5, Math.floor(cells.length * 0.38)));
-  while (queue.length && take.size < cap) {
-    const [cx, cy] = queue.shift();
-    const next = neighbors(cx, cy).filter(([x, y]) => farSet.has(y * COLS + x) && !take.has(y * COLS + x));
-    next.sort((a, b) => hypot(b[0], b[1], n.capital) - hypot(a[0], a[1], n.capital));
-    for (const p of next) {
-      if (take.size >= cap) break;
-      take.add(p[1] * COLS + p[0]);
-      queue.push(p);
-    }
-  }
-  if (take.size < 5) return;
-  let hx = seed[0], hy = seed[1], hd = -1;
-  for (const k of take) {
-    const x = k % COLS, y = Math.floor(k / COLS);
+  if (cells.length < 36) return;
+  const far = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(8, n.reach * 0.62));
+  if (far.length < 12) return;
+  const comps = components(far);
+  const chunk = comps.find(c => c.length >= 12 && c.length <= Math.floor(cells.length * 0.34));
+  if (!chunk) return;
+  const take = new Set(chunk.map(([x, y]) => key(x, y)));
+  const remain = cells.filter(([x, y]) => !take.has(key(x, y)));
+  if (components(remain).length !== 1 || remain.length < 20) return;
+  let hx = chunk[0][0], hy = chunk[0][1], hd = -1;
+  for (const [x, y] of chunk) {
     const d = hypot(x, y, n.capital);
     if (d > hd) { hd = d; hx = x; hy = y; }
   }
   const baby = found(hx, hy, nameRealm(), colors[ri(colors.length)]);
-  for (const k of take) owner[Math.floor(k / COLS)][k % COLS] = baby.id;
-  baby.pops = take.size;
+  for (const [x, y] of chunk) owner[y][x] = baby.id;
   baby.capital = { x: hx, y: hy };
-  n.stability = Math.min(78, n.stability + 14);
-  n.quietUntil = year + 70;
-  makePeace(n, baby, 45 + ri(40));
+  baby.quietUntil = year + 160;
+  n.stability = Math.min(82, n.stability + 18);
+  n.quietUntil = year + 160;
+  makePeace(n, baby, 70 + ri(40));
   chronicle(year, baby.name + " breaks from " + n.name + ".");
 }
 
-function seedWanderer() {
-  const empty = [];
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND && owner[y][x] < 0) empty.push([x, y]);
-  if (empty.length < 8) return;
-  const [x, y] = empty[ri(empty.length)];
-  found(x, y, nameRealm(), colors[ri(colors.length)]);
+function keepWhole() {
+  for (const n of nations.slice()) {
+    if (!nations.includes(n)) continue;
+    const cells = cellsOf(n.id);
+    if (cells.length < 2) continue;
+    const comps = components(cells);
+    if (comps.length < 2) continue;
+    const main = comps[0];
+    let cx = 0, cy = 0;
+    for (const [x, y] of main) { cx += x; cy += y; }
+    cx /= main.length; cy /= main.length;
+    let best = main[0], bestD = Infinity;
+    for (const [x, y] of main) {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d < bestD) { bestD = d; best = [x, y]; }
+    }
+    n.capital = { x: best[0], y: best[1] };
+    for (let i = 1; i < comps.length; i++) {
+      const chunk = comps[i];
+      if (chunk.length >= 18 && n.pops - chunk.length >= 18 && year >= (n.quietUntil || 0) && n.stability < 42) {
+        let hx = chunk[0][0], hy = chunk[0][1], hd = -1;
+        for (const [x, y] of chunk) {
+          const d = hypot(x, y, n.capital);
+          if (d > hd) { hd = d; hx = x; hy = y; }
+        }
+        const baby = found(hx, hy, nameRealm(), colors[ri(colors.length)]);
+        for (const [x, y] of chunk) owner[y][x] = baby.id;
+        baby.capital = { x: hx, y: hy };
+        baby.quietUntil = year + 140;
+        n.quietUntil = year + 140;
+        makePeace(n, baby, 60);
+        chronicle(year, baby.name + " is cut off from " + n.name + ".");
+      } else {
+        annex(chunk);
+      }
+    }
+  }
+}
+
+function annex(chunk) {
+  const mine = new Set(chunk.map(([x, y]) => key(x, y)));
+  const counts = {};
+  for (const [x, y] of chunk) {
+    for (const [nx, ny] of neighbors(x, y)) {
+      if (mine.has(key(nx, ny))) continue;
+      const o = owner[ny][nx];
+      if (o >= 0) counts[o] = (counts[o] || 0) + 1;
+    }
+  }
+  let best = -1, bestN = 0;
+  for (const id of Object.keys(counts)) if (counts[id] > bestN) { bestN = counts[id]; best = Number(id); }
+  for (const [x, y] of chunk) owner[y][x] = best;
+}
+
+function absorbTiny() {
+  for (const n of nations.slice()) {
+    if (n.pops >= 8 || year - n.born < 40) continue;
+    const cells = cellsOf(n.id);
+    if (!cells.length) continue;
+    annex(cells);
+    chronicle(year, n.name + " fades.");
+    n.pops = 0;
+  }
+  nations = nations.filter(n => n.pops > 0);
+}
+
+function seedEmptyContinent() {
+  const seen = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (seen[y][x] || grid[y][x] !== LAND) continue;
+      const q = [[x, y]];
+      const blob = [];
+      let owned = 0;
+      seen[y][x] = true;
+      while (q.length) {
+        const [cx, cy] = q.shift();
+        blob.push([cx, cy]);
+        if (owner[cy][cx] >= 0) owned++;
+        for (const [nx, ny] of neighbors(cx, cy)) {
+          if (!seen[ny][nx] && grid[ny][nx] === LAND) { seen[ny][nx] = true; q.push([nx, ny]); }
+        }
+      }
+      if (owned === 0 && blob.length >= 40 && nations.length < 14) {
+        const [sx, sy] = blob[Math.floor(blob.length / 2)];
+        const n = found(sx, sy, nameRealm(), colors[ri(colors.length)]);
+        claimDisk(n, 3);
+        return;
+      }
+    }
+  }
 }
 
 function render() {
@@ -390,7 +546,7 @@ function render() {
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
     }
   }
-  ctx.strokeStyle = "rgba(20,16,12,0.45)";
+  ctx.strokeStyle = "rgba(20,16,12,0.55)";
   ctx.lineWidth = 1;
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
@@ -405,10 +561,10 @@ function render() {
     }
   }
   for (const n of nations) {
-    if (!n.capital || owner[n.capital.y][n.capital.x] !== n.id) continue;
+    if (!n.capital || !owner[n.capital.y] || owner[n.capital.y][n.capital.x] !== n.id) continue;
     const s = Math.max(2, Math.min(cw, ch) * 0.34);
     const cx = (n.capital.x + 0.5) * cw, cy = (n.capital.y + 0.5) * ch;
-    ctx.fillStyle = "rgba(20,14,8,0.9)";
+    ctx.fillStyle = "rgba(20,14,8,0.92)";
     ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
   }
 }
@@ -416,9 +572,10 @@ function render() {
 function drawUI() {
   document.getElementById("year").textContent = "Year " + year + "  \u00b7  " + nations.length + " realms";
   const focus = byId(selected);
+  const foe = focus && focus.atWar.size ? byId([...focus.atWar][0]) : null;
   document.getElementById("focus").textContent = focus ? focus.name : "The world";
   document.getElementById("stats").innerHTML = focus
-    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability) + "<br>Reach " + Math.round(focus.reach || 0)
+    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability) + "<br>Reach " + Math.round(focus.reach || 0) + (foe ? "<br>At war with " + foe.name : "")
     : nations.length + " living realms";
   const list = document.getElementById("list");
   list.innerHTML = "";
