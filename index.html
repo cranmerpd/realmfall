@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Realmfall — fantasy map toy</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #14110e; color: #efe6d6; font: 14px/1.4 Georgia, "Palatino Linotype", serif; }
+  body { display: flex; flex-direction: column; min-height: 100%; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: #1c1814; border-bottom: 1px solid #3a3126; }
+  h1 { font-size: 18px; margin: 0; font-weight: normal; letter-spacing: 0.04em; }
+  h1 span { color: #c4a574; }
+  button, select { background: #2a241c; color: #efe6d6; border: 1px solid #5a4c38; border-radius: 4px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { background: #3a3126; }
+  #wrap { flex: 1; display: flex; min-height: 0; }
+  canvas { flex: 1; width: 100%; height: 100%; display: block; cursor: crosshair; background: #1a2740; }
+  aside { width: 280px; overflow: auto; padding: 12px 14px; background: #1a1612; border-left: 1px solid #3a3126; }
+  aside h2 { font-size: 15px; margin: 0 0 6px; }
+  .muted { color: #a89880; font-size: 12px; }
+  .stat { margin: 8px 0; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  li { display: flex; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid #2c261e; font-size: 13px; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+  #log { margin-top: 12px; font-size: 12px; color: #cbbfaa; }
+  #log div { margin: 0 0 6px; }
+  @media (max-width: 800px) {
+    #wrap { flex-direction: column; }
+    aside { width: auto; max-height: 40vh; border-left: 0; border-top: 1px solid #3a3126; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Realm<span>fall</span></h1>
+  <button id="newmap">New map</button>
+  <button id="pause">Pause</button>
+  <select id="speed" aria-label="Speed">
+    <option value="1">1x</option>
+    <option value="2" selected>2x</option>
+    <option value="4">4x</option>
+    <option value="8">8x</option>
+  </select>
+  <span class="muted" id="year"></span>
+</header>
+<div id="wrap">
+  <canvas id="map"></canvas>
+  <aside>
+    <h2 id="focus">The world</h2>
+    <div class="muted" id="blurb">Click a realm. Empty land is unclaimed. Rebellions found new realms when a crown grows too large or too poor.</div>
+    <div class="stat" id="stats"></div>
+    <ul id="list"></ul>
+    <div id="log"></div>
+  </aside>
+</div>
+<script>
+const COLS = 120, ROWS = 78;
+const LAND = 1, WATER = 0;
+const prefixes = ["Ash","Dun","Kor","Vel","Mar","Ost","Ryn","Hal","Tor","Brae","Quel","Sar","Ith","Nor","Caer","Wyn","Gal","Thal","Eld","Mir"];
+const suffixes = ["wald","heim","dor","reach","mark","hold","ia","und","fen","gard","mere","wyn","oth","lan","bar","ric","moor","stead","vane","spire"];
+const colors = ["#c45c4a","#d4a017","#3d8c6e","#4f6d9a","#a85c8a","#c47a3a","#6e8b3d","#8d5e3c","#5c7a8a","#b04a5a","#7a6a3a","#3f7a6a","#9a5c3c","#6a4a8a","#a89050","#4a7a4a","#8a4a4a","#3a6a8a","#b07050","#5a5a3a"];
+
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+let grid, owner, nations, year, paused, selected, logLines, acc, seed;
+
+function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+function ri(n) { return Math.floor(rnd() * n); }
+function pick(a) { return a[ri(a.length)]; }
+function nameRealm() { return pick(prefixes) + pick(suffixes); }
+
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  canvas.width = Math.max(320, r.width);
+  canvas.height = Math.max(240, r.height);
+}
+window.addEventListener("resize", resize);
+
+function neighbors(x, y) {
+  const n = [];
+  if (x > 0) n.push([x - 1, y]);
+  if (x < COLS - 1) n.push([x + 1, y]);
+  if (y > 0) n.push([x, y - 1]);
+  if (y < ROWS - 1) n.push([x, y + 1]);
+  return n;
+}
+
+function generate() {
+  seed = (Date.now() % 2000000000) + 1;
+  grid = Array.from({ length: ROWS }, () => Array(COLS).fill(WATER));
+  owner = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  for (let i = 0; i < 7; i++) {
+    let x = 8 + ri(COLS - 16), y = 6 + ri(ROWS - 12);
+    for (let s = 0; s < 900; s++) {
+      grid[y][x] = LAND;
+      const dir = ri(4);
+      x = Math.max(2, Math.min(COLS - 3, x + [1, -1, 0, 0][dir]));
+      y = Math.max(2, Math.min(ROWS - 3, y + [0, 0, 1, -1][dir]));
+    }
+  }
+  for (let p = 0; p < 4; p++) {
+    const next = grid.map(row => row.slice());
+    for (let y = 1; y < ROWS - 1; y++) {
+      for (let x = 1; x < COLS - 1; x++) {
+        let c = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c += grid[y + dy][x + dx] === LAND;
+        next[y][x] = c >= 5 ? LAND : WATER;
+      }
+    }
+    grid = next;
+  }
+  nations = [];
+  const spots = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
+  const start = 6 + ri(4);
+  for (let i = 0; i < start && spots.length; i++) {
+    const [x, y] = spots[ri(spots.length)];
+    found(x, y, nameRealm(), colors[i % colors.length]);
+  }
+  year = 800 + ri(400);
+  selected = nations[0] ? nations[0].id : null;
+  logLines = ["A new age begins. Crowns are few, and the marches are empty."];
+  acc = 0;
+  render();
+  drawUI();
+}
+
+let nextId = 1;
+function found(x, y, name, color) {
+  const id = nextId++;
+  const n = { id, name, color, born: year || 1000, stability: 70 + ri(25), pops: 1, atWar: new Set() };
+  nations.push(n);
+  if (grid[y][x] === LAND) owner[y][x] = id;
+  chronicle(year || 1000, name + " is founded.");
+  return n;
+}
+
+function chronicle(y, text) {
+  logLines.unshift(y + ": " + text);
+  logLines = logLines.slice(0, 12);
+}
+
+function byId(id) { return nations.find(n => n.id === id); }
+
+function step() {
+  year++;
+  for (const n of nations) n.pops = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const id = owner[y][x];
+    if (id >= 0) { const n = byId(id); if (n) n.pops++; }
+  }
+  nations = nations.filter(n => n.pops > 0 || n.born === year);
+  const claimants = nations.slice();
+  for (const n of claimants) {
+    if (!nations.includes(n) || n.pops === 0) continue;
+    let tries = 1 + (n.pops > 40 ? 2 : n.pops > 12 ? 1 : 0);
+    for (let t = 0; t < tries; t++) expand(n);
+    if (rnd() < 0.04) n.stability += ri(5) - 2;
+    n.stability = Math.max(5, Math.min(100, n.stability));
+    if (n.pops > 18 && n.stability < 42 && rnd() < 0.35) rebel(n);
+    if (n.pops > 55 && rnd() < 0.08) rebel(n);
+  }
+  if (year % 25 === 0 && nations.length < 4 && rnd() < 0.7) seedWanderer();
+  drawUI();
+}
+
+function cellsOf(id) {
+  const cells = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (owner[y][x] === id) cells.push([x, y]);
+  return cells;
+}
+
+function expand(n) {
+  const cells = cellsOf(n.id);
+  if (!cells.length) return;
+  const [sx, sy] = cells[ri(cells.length)];
+  const opts = neighbors(sx, sy).filter(([x, y]) => grid[y][x] === LAND && owner[y][x] !== n.id);
+  if (!opts.length) return;
+  const [tx, ty] = opts[ri(opts.length)];
+  const other = owner[ty][tx];
+  if (other < 0) {
+    owner[ty][tx] = n.id;
+    n.stability = Math.min(100, n.stability + 1);
+    return;
+  }
+  const foe = byId(other);
+  if (!foe) { owner[ty][tx] = n.id; return; }
+  const power = n.pops + ri(8);
+  const defense = foe.pops + ri(8);
+  if (power > defense) {
+    owner[ty][tx] = n.id;
+    n.atWar.add(foe.id);
+    foe.atWar.add(n.id);
+    foe.stability -= 4;
+    if (foe.pops < 4) chronicle(year, n.name + " breaks " + foe.name + ".");
+  } else {
+    n.stability -= 2;
+  }
+}
+
+function rebel(n) {
+  const cells = cellsOf(n.id);
+  if (cells.length < 8) return;
+  const edge = cells.filter(([x, y]) => neighbors(x, y).some(([a, b]) => owner[b][a] !== n.id));
+  const pool = edge.length ? edge : cells;
+  const [x, y] = pool[ri(pool.length)];
+  const color = colors[ri(colors.length)];
+  const baby = found(x, y, nameRealm(), color);
+  const take = new Set([y * COLS + x]);
+  const queue = [[x, y]];
+  const want = 3 + ri(Math.min(8, Math.floor(cells.length / 4)));
+  while (queue.length && take.size < want) {
+    const [cx, cy] = queue.shift();
+    for (const [nx, ny] of neighbors(cx, cy)) {
+      if (owner[ny][nx] === n.id && !take.has(ny * COLS + nx) && rnd() < 0.7) {
+        take.add(ny * COLS + nx);
+        queue.push([nx, ny]);
+      }
+    }
+  }
+  for (const k of take) owner[Math.floor(k / COLS)][k % COLS] = baby.id;
+  baby.pops = take.size;
+  n.stability = Math.min(70, n.stability + 8);
+  chronicle(year, baby.name + " breaks from " + n.name + ".");
+}
+
+function seedWanderer() {
+  const empty = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND && owner[y][x] < 0) empty.push([x, y]);
+  if (!empty.length) return;
+  const [x, y] = empty[ri(empty.length)];
+  found(x, y, nameRealm(), colors[ri(colors.length)]);
+}
+
+function render() {
+  const cw = canvas.width / COLS, ch = canvas.height / ROWS;
+  ctx.fillStyle = "#1a2744";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x] !== LAND) continue;
+      const id = owner[y][x];
+      ctx.fillStyle = id < 0 ? "#6d8a52" : (byId(id)?.color || "#888");
+      ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
+    }
+  }
+  ctx.strokeStyle = "rgba(20,16,12,0.45)";
+  ctx.lineWidth = 1;
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const id = owner[y][x];
+      if (id < 0) continue;
+      if (x < COLS - 1 && owner[y][x + 1] !== id && grid[y][x + 1] === LAND) {
+        ctx.beginPath(); ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); ctx.stroke();
+      }
+      if (y < ROWS - 1 && owner[y + 1][x] !== id && grid[y + 1][x] === LAND) {
+        ctx.beginPath(); ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); ctx.stroke();
+      }
+    }
+  }
+}
+
+function drawUI() {
+  document.getElementById("year").textContent = "Year " + year + "  ·  " + nations.length + " realms";
+  const focus = byId(selected);
+  document.getElementById("focus").textContent = focus ? focus.name : "The world";
+  document.getElementById("stats").innerHTML = focus
+    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability)
+    : nations.length + " living realms";
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  [...nations].sort((a, b) => b.pops - a.pops).slice(0, 14).forEach(n => {
+    const li = document.createElement("li");
+    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span>' + n.name + '</span><span class="muted" style="margin-left:auto">' + n.pops + '</span>';
+    li.onclick = () => { selected = n.id; drawUI(); };
+    list.appendChild(li);
+  });
+  document.getElementById("log").innerHTML = logLines.map(l => "<div>" + l + "</div>").join("");
+  document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
+}
+
+canvas.addEventListener("click", e => {
+  const r = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * COLS);
+  const y = Math.floor((e.clientY - r.top) / r.height * ROWS);
+  if (grid && grid[y] && grid[y][x] === LAND && owner[y][x] >= 0) selected = owner[y][x];
+  drawUI();
+});
+document.getElementById("newmap").onclick = generate;
+document.getElementById("pause").onclick = () => { paused = !paused; drawUI(); };
+document.getElementById("speed").onchange = () => {};
+
+let last = 0;
+function loop(t) {
+  if (!last) last = t;
+  const dt = t - last;
+  last = t;
+  if (!paused) {
+    acc += dt * Number(document.getElementById("speed").value);
+    while (acc > 280) { acc -= 280; step(); }
+    render();
+  }
+  requestAnimationFrame(loop);
+}
+resize();
+generate();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
