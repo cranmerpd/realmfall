@@ -48,7 +48,7 @@
   <canvas id="map"></canvas>
   <aside>
     <h2 id="focus">The world</h2>
-    <div class="muted" id="blurb">Click a realm. Empty land is unclaimed. Rebellions found new realms when a crown grows too large or too poor.</div>
+    <div class="muted" id="blurb">Dark marks are capitals. Realms grow outward from home. A long reach makes the frontier break off into a new realm.</div>
     <div class="stat" id="stats"></div>
     <ul id="list"></ul>
     <div id="log"></div>
@@ -86,6 +86,11 @@ function neighbors(x, y) {
   return n;
 }
 
+function hypot(x, y, c) {
+  const dx = x - c.x, dy = y - c.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
 function generate() {
   seed = (Date.now() % 2000000000) + 1;
   grid = Array.from({ length: ROWS }, () => Array(COLS).fill(WATER));
@@ -111,13 +116,25 @@ function generate() {
     grid = next;
   }
   nations = [];
+  nextId = 1;
   year = 800 + ri(400);
   logLines = [];
   const spots = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
   const start = 6 + ri(4);
+  const chosen = [];
   for (let i = 0; i < start && spots.length; i++) {
-    const [x, y] = spots[ri(spots.length)];
+    let best = 0, bestScore = -1;
+    const tries = Math.min(48, spots.length);
+    for (let t = 0; t < tries; t++) {
+      const j = ri(spots.length);
+      const [x, y] = spots[j];
+      let score = 999;
+      for (const c of chosen) score = Math.min(score, Math.hypot(x - c.x, y - c.y));
+      if (score > bestScore) { bestScore = score; best = j; }
+    }
+    const [x, y] = spots.splice(best, 1)[0];
+    chosen.push({ x, y });
     found(x, y, nameRealm(), colors[i % colors.length]);
   }
   selected = nations[0] ? nations[0].id : null;
@@ -130,9 +147,12 @@ function generate() {
 let nextId = 1;
 function found(x, y, name, color) {
   const id = nextId++;
-  const n = { id, name, color, born: year || 1000, stability: 70 + ri(25), pops: 1, atWar: new Set() };
+  const n = {
+    id, name, color, born: year || 1000, stability: 72 + ri(20), pops: 1,
+    capital: { x, y }, atWar: new Set(), peace: {}, wars: {}
+  };
   nations.push(n);
-  if (grid[y][x] === LAND) owner[y][x] = id;
+  if (grid[y] && grid[y][x] === LAND) owner[y][x] = id;
   chronicle(year || 1000, name + " is founded.");
   return n;
 }
@@ -145,6 +165,27 @@ function chronicle(y, text) {
 
 function byId(id) { return nations.find(n => n.id === id); }
 
+function atPeace(n, id) { return (n.peace[id] || 0) > year; }
+
+function makePeace(a, b, years) {
+  a.atWar.delete(b.id);
+  b.atWar.delete(a.id);
+  delete a.wars[b.id];
+  delete b.wars[a.id];
+  a.peace[b.id] = year + years;
+  b.peace[a.id] = year + years;
+}
+
+function declareWar(n, foe) {
+  if (!foe || n.atWar.has(foe.id) || atPeace(n, foe.id)) return false;
+  n.atWar.add(foe.id);
+  foe.atWar.add(n.id);
+  n.wars[foe.id] = year;
+  foe.wars[n.id] = year;
+  chronicle(year, n.name + " goes to war with " + foe.name + ".");
+  return true;
+}
+
 function step() {
   year++;
   for (const n of nations) n.pops = 0;
@@ -156,15 +197,50 @@ function step() {
   const claimants = nations.slice();
   for (const n of claimants) {
     if (!nations.includes(n) || n.pops === 0) continue;
-    let tries = 1 + (n.pops > 40 ? 2 : n.pops > 12 ? 1 : 0);
+    measure(n);
+    const tries = 1 + (n.pops > 36 ? 1 : 0);
     for (let t = 0; t < tries; t++) expand(n);
-    if (rnd() < 0.04) n.stability += ri(5) - 2;
-    n.stability = Math.max(5, Math.min(100, n.stability));
-    if (n.pops > 18 && n.stability < 42 && rnd() < 0.35) rebel(n);
-    if (n.pops > 55 && rnd() < 0.08) rebel(n);
+    settleWars(n);
+    n.stability = Math.max(4, Math.min(100, n.stability));
+    if (n.pops > 28 && n.reach > 11 && n.stability < 40 && (n.quietUntil || 0) <= year && rnd() < (42 - n.stability) / 140) rebel(n);
   }
-  if (year % 25 === 0 && nations.length < 4 && rnd() < 0.7) seedWanderer();
+  for (const n of nations) {
+    if (!n.capital || owner[n.capital.y][n.capital.x] === n.id) continue;
+    const cells = cellsOf(n.id);
+    if (!cells.length) continue;
+    let best = cells[0], bestD = Infinity;
+    for (const [x, y] of cells) {
+      const d = hypot(x, y, n.capital);
+      if (d < bestD) { bestD = d; best = [x, y]; }
+    }
+    n.capital = { x: best[0], y: best[1] };
+  }
+  if (year % 40 === 0 && nations.length < 3 && rnd() < 0.8) seedWanderer();
   drawUI();
+}
+
+function measure(n) {
+  const cells = cellsOf(n.id);
+  n.pops = cells.length;
+  if (!cells.length) { n.reach = 0; return; }
+  if (owner[n.capital.y][n.capital.x] !== n.id) {
+    let best = cells[0], bestD = Infinity;
+    for (const [x, y] of cells) {
+      const d = hypot(x, y, n.capital);
+      if (d < bestD) { bestD = d; best = [x, y]; }
+    }
+    n.capital = { x: best[0], y: best[1] };
+  }
+  let maxD = 0, sum = 0;
+  for (const [x, y] of cells) {
+    const d = hypot(x, y, n.capital);
+    if (d > maxD) maxD = d;
+    sum += d;
+  }
+  n.reach = maxD;
+  const avg = sum / cells.length;
+  if (avg > 7) n.stability -= 0.35 + (avg - 7) * 0.12;
+  else n.stability += 0.25;
 }
 
 function cellsOf(id) {
@@ -173,64 +249,131 @@ function cellsOf(id) {
   return cells;
 }
 
+function movesFrom(n) {
+  const empty = [], enemy = [];
+  const seen = new Set();
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== n.id) continue;
+    for (const [tx, ty] of neighbors(x, y)) {
+      const key = ty * COLS + tx;
+      if (seen.has(key) || grid[ty][tx] !== LAND || owner[ty][tx] === n.id) continue;
+      seen.add(key);
+      const move = { tx, ty, d: hypot(tx, ty, n.capital), o: owner[ty][tx] };
+      if (move.o < 0) empty.push(move);
+      else enemy.push(move);
+    }
+  }
+  return { empty, enemy };
+}
+
+function pickClose(moves) {
+  let maxD = 0;
+  for (const m of moves) if (m.d > maxD) maxD = m.d;
+  const weights = moves.map(m => (maxD - m.d) + maxD * 0.2 + 0.01);
+  let total = 0;
+  for (const w of weights) total += w;
+  let r = rnd() * total;
+  for (let i = 0; i < moves.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return moves[i];
+  }
+  return moves[moves.length - 1];
+}
+
 function expand(n) {
-  const cells = cellsOf(n.id);
-  if (!cells.length) return;
-  const [sx, sy] = cells[ri(cells.length)];
-  const opts = neighbors(sx, sy).filter(([x, y]) => grid[y][x] === LAND && owner[y][x] !== n.id);
-  if (!opts.length) return;
-  const [tx, ty] = opts[ri(opts.length)];
-  const other = owner[ty][tx];
-  if (other < 0) {
-    owner[ty][tx] = n.id;
-    n.stability = Math.min(100, n.stability + 1);
+  const { empty, enemy } = movesFrom(n);
+  const near = empty.filter(m => m.d <= n.reach + 3.5);
+  const pool = near.length ? near : empty;
+  if (pool.length && (rnd() < 0.82 || !enemy.length)) {
+    const m = pickClose(pool);
+    owner[m.ty][m.tx] = n.id;
+    n.stability = Math.min(100, n.stability + 0.4);
     return;
   }
-  const foe = byId(other);
-  if (!foe) { owner[ty][tx] = n.id; return; }
-  const power = n.pops + ri(8);
-  const defense = foe.pops + ri(8);
-  if (power > defense) {
-    owner[ty][tx] = n.id;
-    n.atWar.add(foe.id);
-    foe.atWar.add(n.id);
-    foe.stability -= 4;
-    if (foe.pops < 4) chronicle(year, n.name + " breaks " + foe.name + ".");
+  if (!enemy.length) return;
+  const friendly = enemy.filter(m => !atPeace(n, m.o));
+  if (!friendly.length) return;
+  const m = pickClose(friendly);
+  const foe = byId(m.o);
+  if (!foe) { owner[m.ty][m.tx] = n.id; return; }
+  if (foe.pops <= 4 && !atPeace(n, foe.id)) {
+    owner[m.ty][m.tx] = n.id;
+    if (foe.pops <= 1) chronicle(year, n.name + " absorbs " + foe.name + ".");
+    return;
+  }
+  if (!n.atWar.has(foe.id)) {
+    const border = enemy.filter(e => e.o === foe.id).length;
+    if (border < 3 || rnd() > 0.35) return;
+    declareWar(n, foe);
+  }
+  const power = n.pops + 4 + ri(6);
+  const defense = foe.pops + ri(6);
+  if (power > defense || m.d + 2 < hypot(m.tx, m.ty, foe.capital)) {
+    owner[m.ty][m.tx] = n.id;
+    foe.stability -= 3;
   } else {
-    n.stability -= 2;
+    n.stability -= 1.5;
+  }
+}
+
+function settleWars(n) {
+  for (const id of [...n.atWar]) {
+    const foe = byId(id);
+    if (!foe || foe.pops === 0) { n.atWar.delete(id); delete n.wars[id]; continue; }
+    const started = n.wars[id] || year;
+    const border = movesFrom(n).enemy.filter(e => e.o === id).length;
+    if (year - started > 10 + (n.id % 7) || border < 1) {
+      makePeace(n, foe, 30 + ri(40));
+      chronicle(year, n.name + " makes peace with " + foe.name + ".");
+    }
   }
 }
 
 function rebel(n) {
   const cells = cellsOf(n.id);
-  if (cells.length < 8) return;
-  const edge = cells.filter(([x, y]) => neighbors(x, y).some(([a, b]) => owner[b][a] !== n.id));
-  const pool = edge.length ? edge : cells;
-  const [x, y] = pool[ri(pool.length)];
-  const color = colors[ri(colors.length)];
-  const baby = found(x, y, nameRealm(), color);
-  const take = new Set([y * COLS + x]);
-  const queue = [[x, y]];
-  const want = 3 + ri(Math.min(8, Math.floor(cells.length / 4)));
-  while (queue.length && take.size < want) {
+  if (cells.length < 14) return;
+  const far = cells.filter(([x, y]) => hypot(x, y, n.capital) >= Math.max(5, n.reach * 0.55));
+  if (far.length < 5) return;
+  let seed = far[0], sd = -1;
+  for (const [x, y] of far) {
+    const d = hypot(x, y, n.capital);
+    if (d > sd) { sd = d; seed = [x, y]; }
+  }
+  const farSet = new Set(far.map(([x, y]) => y * COLS + x));
+  const take = new Set([seed[1] * COLS + seed[0]]);
+  const queue = [seed];
+  const cap = Math.min(far.length, Math.max(5, Math.floor(cells.length * 0.38)));
+  while (queue.length && take.size < cap) {
     const [cx, cy] = queue.shift();
-    for (const [nx, ny] of neighbors(cx, cy)) {
-      if (owner[ny][nx] === n.id && !take.has(ny * COLS + nx) && rnd() < 0.7) {
-        take.add(ny * COLS + nx);
-        queue.push([nx, ny]);
-      }
+    const next = neighbors(cx, cy).filter(([x, y]) => farSet.has(y * COLS + x) && !take.has(y * COLS + x));
+    next.sort((a, b) => hypot(b[0], b[1], n.capital) - hypot(a[0], a[1], n.capital));
+    for (const p of next) {
+      if (take.size >= cap) break;
+      take.add(p[1] * COLS + p[0]);
+      queue.push(p);
     }
   }
+  if (take.size < 5) return;
+  let hx = seed[0], hy = seed[1], hd = -1;
+  for (const k of take) {
+    const x = k % COLS, y = Math.floor(k / COLS);
+    const d = hypot(x, y, n.capital);
+    if (d > hd) { hd = d; hx = x; hy = y; }
+  }
+  const baby = found(hx, hy, nameRealm(), colors[ri(colors.length)]);
   for (const k of take) owner[Math.floor(k / COLS)][k % COLS] = baby.id;
   baby.pops = take.size;
-  n.stability = Math.min(70, n.stability + 8);
+  baby.capital = { x: hx, y: hy };
+  n.stability = Math.min(78, n.stability + 14);
+  n.quietUntil = year + 70;
+  makePeace(n, baby, 45 + ri(40));
   chronicle(year, baby.name + " breaks from " + n.name + ".");
 }
 
 function seedWanderer() {
   const empty = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND && owner[y][x] < 0) empty.push([x, y]);
-  if (!empty.length) return;
+  if (empty.length < 8) return;
   const [x, y] = empty[ri(empty.length)];
   found(x, y, nameRealm(), colors[ri(colors.length)]);
 }
@@ -261,6 +404,13 @@ function render() {
       }
     }
   }
+  for (const n of nations) {
+    if (!n.capital || owner[n.capital.y][n.capital.x] !== n.id) continue;
+    const s = Math.max(2, Math.min(cw, ch) * 0.34);
+    const cx = (n.capital.x + 0.5) * cw, cy = (n.capital.y + 0.5) * ch;
+    ctx.fillStyle = "rgba(20,14,8,0.9)";
+    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+  }
 }
 
 function drawUI() {
@@ -268,7 +418,7 @@ function drawUI() {
   const focus = byId(selected);
   document.getElementById("focus").textContent = focus ? focus.name : "The world";
   document.getElementById("stats").innerHTML = focus
-    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability)
+    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability) + "<br>Reach " + Math.round(focus.reach || 0)
     : nations.length + " living realms";
   const list = document.getElementById("list");
   list.innerHTML = "";
