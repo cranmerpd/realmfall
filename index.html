@@ -88,7 +88,7 @@
   <aside>
     <div class="kicker">SELECTED</div>
     <h2 id="focus">The world</h2>
-    <p id="blurb">Wars start for a reason: lost land, no room left, or a shaky neighbor. A realm is not cut in half. A revolt, when it happens, is a small far march.</p>
+    <p id="blurb">Each square is a province. People thicken near the capital and thin on the frontier. A war is fought with population, and conquest costs lives.</p>
     <div id="stats"></div>
     <div class="kicker">REALMS</div>
     <ul id="list"></ul>
@@ -105,7 +105,7 @@ const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8f
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
-let grid, owner, prev, nations, year, paused, selected, logLines, acc, seed, coast;
+let grid, owner, prev, pop, nations, year, paused, selected, logLines, acc, seed, coast;
 let nextId = 1;
 let speed = 2;
 
@@ -198,6 +198,7 @@ function generate() {
   acc = 0;
   recount();
   markCoast();
+  seedPop();
   render();
   drawUI();
 }
@@ -217,7 +218,10 @@ function found(x, y, name, color, why) {
 
 function claim(x, y, id) {
   if (!prev) prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
-  if (owner[y][x] !== id) prev[y][x] = owner[y][x];
+  if (owner[y][x] !== id) {
+    if (owner[y][x] >= 0 && id >= 0 && pop && pop[y][x]) pop[y][x] = Math.max(180, Math.round(pop[y][x] * 0.88));
+    prev[y][x] = owner[y][x];
+  }
   owner[y][x] = id;
 }
 
@@ -301,6 +305,7 @@ function recount() {
 
 function step() {
   year++;
+  demography();
   recount();
   const claimants = nations.slice();
   for (const n of claimants) {
@@ -343,16 +348,18 @@ function settleCapital(n) {
 function measure(n) {
   const cells = cellsOf(n.id);
   n.pops = cells.length;
-  if (!cells.length) { n.reach = 0; return; }
-  let maxD = 0, sum = 0, sx = 0, sy = 0;
+  if (!cells.length) { n.reach = 0; n.people = 0; return; }
+  let maxD = 0, sum = 0, sx = 0, sy = 0, people = 0;
   for (const [x, y] of cells) {
     const d = hypot(x, y, n.capital);
     if (d > maxD) maxD = d;
     sum += d;
     sx += x;
     sy += y;
+    people += (pop && pop[y][x]) || 0;
   }
   n.reach = maxD;
+  n.people = people;
   n.avg = sum / cells.length;
   n.label = { x: sx / cells.length, y: sy / cells.length };
   if (n.avg > 12) n.stability -= 0.1 + (n.avg - 12) * 0.035;
@@ -440,7 +447,7 @@ function considerWar(n) {
     } else if (open < 6 && border >= 8 && n.pops >= other.pops * 0.85) {
       cause = n.name + ", short of empty land, makes war on " + other.name + ".";
       urge = 0.22;
-    } else if (other.stability < 28 && border >= 6 && n.pops > other.pops * 1.1) {
+    } else if (other.stability < 28 && border >= 6 && (n.people || 0) > (other.people || 0) * 1.15) {
       cause = n.name + " attacks " + other.name + " while its rule is shaky.";
       urge = 0.18;
     }
@@ -464,7 +471,7 @@ function warPush(n) {
   const foeId = [...n.atWar][0];
   const foe = byId(foeId);
   if (!foe) { n.atWar.clear(); return; }
-  const grabs = n.pops + 8 >= foe.pops ? 2 : 1;
+  const grabs = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
   for (let g = 0; g < grabs; g++) {
     const cands = [];
     const seen = new Set();
@@ -486,11 +493,11 @@ function warPush(n) {
     let moved = false;
     for (const m of pool) {
       if (severs(foe.id, m.tx, m.ty)) continue;
-      const power = n.pops * (0.85 + n.stability / 400) + ri(10);
-      let defense = foe.pops * (0.85 + foe.stability / 400) + ri(10);
-      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense += 22;
-      if (m.reclaim) defense *= 0.6;
-      if (power + m.friends * 6 > defense) {
+      const power = muster(n) * (0.94 + rnd() * 0.12);
+      let defense = muster(foe) * (0.94 + rnd() * 0.12);
+      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense *= 1.45;
+      if (m.reclaim) defense *= 0.62;
+      if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
         foe.stability -= 0.55;
       } else {
@@ -695,6 +702,43 @@ function seedEmptyContinent() {
   }
 }
 
+function muster(n) {
+  return (n.people || n.pops * 1200) * (0.82 + n.stability / 350);
+}
+
+function seedPop() {
+  pop = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const h = (Math.imul(x + 3, 374761393) ^ Math.imul(y + 5, 668265263)) >>> 0;
+    let p = 800 + (h % 1600);
+    if (coast[y][x]) p = Math.round(p * 0.82);
+    pop[y][x] = p;
+  }
+}
+
+function demography() {
+  if (!pop) return;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    let p = pop[y][x] || 600;
+    const id = owner[y][x];
+    const n = id >= 0 ? byId(id) : null;
+    let rate = 0.0008;
+    let cap = 1500;
+    if (n && n.capital) {
+      const d = hypot(x, y, n.capital);
+      const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] !== id);
+      if (d <= 2.2) { rate = 0.007; cap = 5200; }
+      else if (d <= 7) { rate = 0.0045; cap = 4200; }
+      else { rate = edge ? 0.0016 : 0.0028; cap = 3400; }
+      if (n.atWar.size) rate *= 0.4;
+    }
+    if (p < cap) p = Math.min(cap, Math.round(p * (1 + rate)));
+    pop[y][x] = Math.max(180, p);
+  }
+}
+
 function markCoast() {
   coast = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
   for (let y = 0; y < ROWS; y++) {
@@ -739,7 +783,7 @@ function render() {
       let fill = edge ? "#243028" : "#354238";
       if (id >= 0) {
         const base = byId(id)?.color || "#888888";
-        fill = edge ? tint(base, "#10140f", 0.28) : base;
+        fill = edge ? tint(base, "#10140f", 0.28) : tint(base, "#ffffff", Math.max(0, Math.min(0.14, ((pop && pop[y][x]) || 1000) / 28000)));
       }
       ctx.fillStyle = fill;
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
@@ -816,6 +860,13 @@ function render() {
   }
 }
 
+function fmt(n) {
+  n = Math.round(n || 0);
+  if (n >= 1000000) return (n / 1000000).toFixed(2) + "m";
+  if (n >= 10000) return (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "k";
+  return String(n);
+}
+
 function row(label, value) {
   return '<div class="row"><span>' + label + '</span><b>' + value + '</b></div>';
 }
@@ -828,14 +879,14 @@ function drawUI() {
   const foe = focus && focus.atWar.size ? byId([...focus.atWar][0]) : null;
   document.getElementById("focus").textContent = focus ? focus.name : "The world";
   document.getElementById("stats").innerHTML = focus
-    ? row("Founded", focus.born) + row("Provinces", focus.pops) + row("Stability", Math.round(focus.stability)) + row("Reach", Math.round(focus.reach || 0)) + row("Status", foe ? "War with " + foe.name : "At peace")
-    : row("Realms", nations.length);
+    ? row("Founded", focus.born) + row("Provinces", focus.pops) + row("Population", fmt(focus.people)) + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0)) + row("Stability", Math.round(focus.stability)) + row("Reach", Math.round(focus.reach || 0)) + row("Status", foe ? "War with " + foe.name : "At peace")
+    : row("Realms", nations.length) + row("Population", fmt(nations.reduce((s, n) => s + (n.people || 0), 0)));
   const list = document.getElementById("list");
   list.innerHTML = "";
-  [...nations].sort((a, b) => b.pops - a.pops).slice(0, 14).forEach(n => {
+  [...nations].sort((a, b) => (b.people || 0) - (a.people || 0)).slice(0, 14).forEach(n => {
     const li = document.createElement("li");
     if (n.id === selected) li.className = "on";
-    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + n.pops + '</span>';
+    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + fmt(n.people) + '</span>';
     li.onclick = () => { selected = n.id; drawUI(); };
     list.appendChild(li);
   });
@@ -862,7 +913,10 @@ canvas.addEventListener("mousemove", e => {
   const x = Math.floor((e.clientX - r.left) / r.width * COLS);
   const y = Math.floor((e.clientY - r.top) / r.height * ROWS);
   let label = "Ocean";
-  if (grid[y] && grid[y][x] === LAND) label = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Realm") : "Unclaimed";
+  if (grid[y] && grid[y][x] === LAND) {
+    const who = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Realm") : "Unclaimed";
+    label = who + "  ·  " + fmt(pop && pop[y] ? pop[y][x] : 0);
+  }
   tip.textContent = label;
   tip.style.display = "block";
   tip.style.left = (e.clientX + 14) + "px";
