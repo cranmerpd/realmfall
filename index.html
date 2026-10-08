@@ -3,54 +3,96 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Realmfall — fantasy map toy</title>
+<title>Realmfall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --bg:#07080b; --line:rgba(255,255,255,.12); --ink:#f4f6f8; --dim:#8d95a3; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #14110e; color: #efe6d6; font: 14px/1.4 Georgia, "Palatino Linotype", serif; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 Inter, system-ui, sans-serif; }
   body { display: flex; flex-direction: column; min-height: 100%; }
-  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: #1c1814; border-bottom: 1px solid #3a3126; }
-  h1 { font-size: 18px; margin: 0; font-weight: normal; letter-spacing: 0.04em; }
-  h1 span { color: #c4a574; }
-  button, select { background: #2a241c; color: #efe6d6; border: 1px solid #5a4c38; border-radius: 4px; padding: 6px 10px; font: inherit; cursor: pointer; }
-  button:hover { background: #3a3126; }
+  header { display: flex; align-items: center; gap: 16px; min-height: 64px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .pip { width: 7px; height: 7px; border-radius: 50%; background: #f4f7fc; box-shadow: 0 0 0 4px rgba(255,255,255,.06); }
+  h1 { margin: 0; font: 600 16px/1 "Barlow Condensed", sans-serif; letter-spacing: .24em; }
+  .brand p { margin: 3px 0 0; color: var(--dim); font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .16em; }
+  .grow { flex: 1; }
+  .controls { display: flex; align-items: center; gap: 8px; }
+  button { background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; font: 500 12px/1 "Barlow Condensed", sans-serif; letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+  button:hover { border-color: rgba(255,255,255,.45); }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; color: var(--dim); padding: 7px 11px; }
+  .seg button.on { background: #f4f7fc; color: #090a0d; }
+  .clock { min-width: 108px; text-align: right; }
+  .clock .k, .kicker { color: var(--dim); font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .16em; }
+  .clock strong { display: block; margin-top: 4px; font: 500 18px/1 "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .clock em { display: block; margin-top: 4px; color: var(--dim); font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace; font-style: normal; letter-spacing: .12em; }
   #wrap { flex: 1; display: flex; min-height: 0; }
-  canvas { flex: 1; width: 100%; height: 100%; display: block; cursor: crosshair; background: #1a2740; }
-  aside { width: 280px; overflow: auto; padding: 12px 14px; background: #1a1612; border-left: 1px solid #3a3126; }
-  aside h2 { font-size: 15px; margin: 0 0 6px; }
-  .muted { color: #a89880; font-size: 12px; }
-  .stat { margin: 8px 0; }
-  ul { list-style: none; padding: 0; margin: 8px 0 0; }
-  li { display: flex; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid #2c261e; font-size: 13px; }
-  .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; }
-  #log { margin-top: 12px; font-size: 12px; color: #cbbfaa; }
-  #log div { margin: 0 0 6px; }
-  @media (max-width: 800px) {
+  #stage { position: relative; flex: 1; min-width: 0; }
+  canvas { width: 100%; height: 100%; display: block; background: #070b14; cursor: crosshair; }
+  #tip { position: fixed; z-index: 4; display: none; pointer-events: none; padding: 6px 8px; background: rgba(8,10,14,.9); border: 1px solid rgba(255,255,255,.16); color: #f4f7fc; font: 500 12px/1 "Barlow Condensed", sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+  aside { width: 312px; overflow: auto; padding: 20px 18px 32px; background: #08090c; border-left: 1px solid var(--line); }
+  .kicker { margin: 22px 0 8px; }
+  aside h2 { margin: 0; font: 600 32px/0.95 "Barlow Condensed", sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+  #blurb { margin: 8px 0 0; color: var(--dim); font-size: 12.5px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  .row b { color: var(--ink); font: 500 13px/1 "IBM Plex Mono", ui-monospace, monospace; font-weight: 500; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06); cursor: pointer; font: 500 15px/1 "Barlow Condensed", sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+  li.on .name { color: #fff; }
+  li .num { margin-left: auto; color: var(--dim); font: 500 12px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: 0; text-transform: none; }
+  .swatch { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  #log .ev { display: grid; grid-template-columns: 46px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  #log span { color: var(--dim); font: 500 11px/1.4 "IBM Plex Mono", ui-monospace, monospace; }
+  #log p { margin: 0; color: #d7dce4; font-size: 12.5px; }
+  @media (max-width: 860px) {
+    header { flex-wrap: wrap; }
+    .grow { display: none; }
     #wrap { flex-direction: column; }
-    aside { width: auto; max-height: 40vh; border-left: 0; border-top: 1px solid #3a3126; }
+    aside { width: auto; max-height: 42vh; border-left: 0; border-top: 1px solid var(--line); }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1>Realm<span>fall</span></h1>
-  <button id="newmap">New map</button>
-  <button id="pause">Pause</button>
-  <select id="speed" aria-label="Speed">
-    <option value="1">1x</option>
-    <option value="2" selected>2x</option>
-    <option value="4">4x</option>
-    <option value="8">8x</option>
-  </select>
-  <span class="muted" id="year"></span>
+  <div class="brand">
+    <i class="pip"></i>
+    <div>
+      <h1>REALMFALL</h1>
+      <p>WORLD SIMULATION</p>
+    </div>
+  </div>
+  <div class="grow"></div>
+  <div class="controls">
+    <button id="newmap" type="button">New map</button>
+    <button id="pause" type="button">Pause</button>
+    <div class="seg" id="speed">
+      <button type="button" data-s="1">1×</button>
+      <button type="button" data-s="2" class="on">2×</button>
+      <button type="button" data-s="4">4×</button>
+      <button type="button" data-s="8">8×</button>
+    </div>
+  </div>
+  <div class="clock">
+    <span class="k">YEAR</span>
+    <strong id="year">—</strong>
+    <em id="count"></em>
+  </div>
 </header>
 <div id="wrap">
-  <canvas id="map"></canvas>
+  <div id="stage">
+    <canvas id="map"></canvas>
+    <div id="tip"></div>
+  </div>
   <aside>
+    <div class="kicker">SELECTED</div>
     <h2 id="focus">The world</h2>
-    <div class="muted" id="blurb">Dark marks are capitals. Realms fill nearby land, then fight along the border. A breakaway is rare and takes a whole frontier.</div>
-    <div class="stat" id="stats"></div>
+    <p id="blurb">Names sit on the larger realms. A white ring is a capital. Borders move when a war starts.</p>
+    <div id="stats"></div>
+    <div class="kicker">REALMS</div>
     <ul id="list"></ul>
+    <div class="kicker">CHRONICLE</div>
     <div id="log"></div>
   </aside>
 </div>
@@ -59,12 +101,13 @@ const COLS = 120, ROWS = 78;
 const LAND = 1, WATER = 0;
 const prefixes = ["Ash","Dun","Kor","Vel","Mar","Ost","Ryn","Hal","Tor","Brae","Quel","Sar","Ith","Nor","Caer","Wyn","Gal","Thal","Eld","Mir"];
 const suffixes = ["wald","heim","dor","reach","mark","hold","ia","und","fen","gard","mere","wyn","oth","lan","bar","ric","moor","stead","vane","spire"];
-const colors = ["#c45c4a","#d4a017","#3d8c6e","#4f6d9a","#a85c8a","#c47a3a","#6e8b3d","#8d5e3c","#5c7a8a","#b04a5a","#7a6a3a","#3f7a6a","#9a5c3c","#6a4a8a","#a89050","#4a7a4a","#8a4a4a","#3a6a8a","#b07050","#5a5a3a"];
+const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8fb45e","#c9a06a","#3f9178","#d46d78","#b59a48","#3e8c96","#d48462","#7d74d0","#d2c15a","#5a9a55","#c45656","#4d7eb8","#d49a74","#8a8648"];
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
-let grid, owner, nations, year, paused, selected, logLines, acc, seed;
+let grid, owner, nations, year, paused, selected, logLines, acc, seed, coast;
 let nextId = 1;
+let speed = 2;
 
 function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
 function ri(n) { return Math.floor(rnd() * n); }
@@ -152,6 +195,7 @@ function generate() {
   logLines = [year + ": A new age begins. The crowns are few, and the empty land is wide."];
   acc = 0;
   recount();
+  markCoast();
   render();
   drawUI();
 }
@@ -160,7 +204,7 @@ function found(x, y, name, color) {
   const id = nextId++;
   const n = {
     id, name, color, born: year || 1000, stability: 75 + ri(15), pops: 1,
-    capital: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80
+    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80
   };
   nations.push(n);
   if (grid[y] && grid[y][x] === LAND) owner[y][x] = id;
@@ -291,13 +335,16 @@ function measure(n) {
   const cells = cellsOf(n.id);
   n.pops = cells.length;
   if (!cells.length) { n.reach = 0; return; }
-  let maxD = 0, sum = 0;
+  let maxD = 0, sum = 0, sx = 0, sy = 0;
   for (const [x, y] of cells) {
     const d = hypot(x, y, n.capital);
     if (d > maxD) maxD = d;
     sum += d;
+    sx += x;
+    sy += y;
   }
   n.reach = maxD;
+  n.label = { x: sx / cells.length, y: sy / cells.length };
   const avg = sum / cells.length;
   if (avg > 11) n.stability -= 0.12 + (avg - 11) * 0.04;
   else n.stability += 0.18;
@@ -534,58 +581,156 @@ function seedEmptyContinent() {
   }
 }
 
+function markCoast() {
+  coast = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x] !== LAND) continue;
+      if (x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1 || neighbors(x, y).some(([nx, ny]) => grid[ny][nx] !== LAND)) coast[y][x] = true;
+    }
+  }
+}
+
+function tint(hex, toward, p) {
+  const n = parseInt(hex.slice(1), 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const t = parseInt(toward.slice(1), 16);
+  const tr = (t >> 16) & 255, tg = (t >> 8) & 255, tb = t & 255;
+  r = Math.round(r + (tr - r) * p);
+  g = Math.round(g + (tg - g) * p);
+  b = Math.round(b + (tb - b) * p);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+
 function render() {
   const cw = canvas.width / COLS, ch = canvas.height / ROWS;
-  ctx.fillStyle = "#1a2744";
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, "#10192c");
+  sky.addColorStop(1, "#070b14");
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "rgba(170,198,230,0.045)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= COLS; x += 10) {
+    ctx.beginPath(); ctx.moveTo(x * cw, 0); ctx.lineTo(x * cw, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y <= ROWS; y += 10) {
+    ctx.beginPath(); ctx.moveTo(0, y * ch); ctx.lineTo(canvas.width, y * ch); ctx.stroke();
+  }
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
       const id = owner[y][x];
-      ctx.fillStyle = id < 0 ? "#6d8a52" : (byId(id)?.color || "#888");
+      const edge = coast && coast[y][x];
+      let fill = edge ? "#243028" : "#354238";
+      if (id >= 0) {
+        const base = byId(id)?.color || "#888888";
+        fill = edge ? tint(base, "#10140f", 0.28) : base;
+      }
+      ctx.fillStyle = fill;
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
     }
   }
-  ctx.strokeStyle = "rgba(20,16,12,0.55)";
+  if (selected != null) {
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (owner[y][x] === selected) ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
+  }
   ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(214,226,214,0.38)";
+  ctx.beginPath();
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (grid[y][x] !== LAND) continue;
+      if (x === COLS - 1 || grid[y][x + 1] !== LAND) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+      if (y === ROWS - 1 || grid[y + 1][x] !== LAND) { ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+      if (x === 0 || grid[y][x - 1] !== LAND) { ctx.moveTo(x * cw, y * ch); ctx.lineTo(x * cw, (y + 1) * ch); }
+      if (y === 0 || grid[y - 1][x] !== LAND) { ctx.moveTo(x * cw, y * ch); ctx.lineTo((x + 1) * cw, y * ch); }
+    }
+  }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(8,10,14,0.72)";
+  ctx.beginPath();
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       const id = owner[y][x];
       if (id < 0) continue;
-      if (x < COLS - 1 && owner[y][x + 1] !== id && grid[y][x + 1] === LAND) {
-        ctx.beginPath(); ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); ctx.stroke();
+      if (x < COLS - 1 && grid[y][x + 1] === LAND && owner[y][x + 1] !== id) {
+        ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch);
       }
-      if (y < ROWS - 1 && owner[y + 1][x] !== id && grid[y + 1][x] === LAND) {
-        ctx.beginPath(); ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); ctx.stroke();
+      if (y < ROWS - 1 && grid[y + 1][x] === LAND && owner[y + 1][x] !== id) {
+        ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch);
       }
     }
   }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.88)";
+  ctx.beginPath();
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (owner[y][x] !== selected) continue;
+      if (x < COLS - 1 && grid[y][x + 1] === LAND && owner[y][x + 1] !== selected) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+      if (y < ROWS - 1 && grid[y + 1][x] === LAND && owner[y + 1][x] !== selected) { ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+    }
+  }
+  ctx.stroke();
+  const shade = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.28, canvas.width / 2, canvas.height / 2, canvas.width * 0.72);
+  shade.addColorStop(0, "rgba(0,0,0,0)");
+  shade.addColorStop(1, "rgba(0,0,0,0.38)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0.14em";
+  for (const n of nations) {
+    if (!n.label || n.pops < 36) continue;
+    const px = (n.label.x + 0.5) * cw, py = (n.label.y + 0.5) * ch;
+    const size = n.pops > 220 ? 15 : n.pops > 90 ? 13 : 11;
+    ctx.font = "600 " + size + "px \"Barlow Condensed\", \"Arial Narrow\", sans-serif";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(6,8,12,0.82)";
+    ctx.strokeText(n.name.toUpperCase(), px, py);
+    ctx.fillStyle = n.id === selected ? "#ffffff" : "rgba(244,247,252,0.88)";
+    ctx.fillText(n.name.toUpperCase(), px, py);
+  }
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
   for (const n of nations) {
     if (!n.capital || !owner[n.capital.y] || owner[n.capital.y][n.capital.x] !== n.id) continue;
-    const s = Math.max(2, Math.min(cw, ch) * 0.34);
     const cx = (n.capital.x + 0.5) * cw, cy = (n.capital.y + 0.5) * ch;
-    ctx.fillStyle = "rgba(20,14,8,0.92)";
-    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+    const r = Math.max(2.4, Math.min(cw, ch) * 0.28);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = "#f4f7fc"; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.48, 0, Math.PI * 2); ctx.fillStyle = n.color; ctx.fill();
   }
 }
 
+function row(label, value) {
+  return '<div class="row"><span>' + label + '</span><b>' + value + '</b></div>';
+}
+
 function drawUI() {
-  document.getElementById("year").textContent = "Year " + year + "  \u00b7  " + nations.length + " realms";
+  document.getElementById("year").textContent = String(year);
+  const count = document.getElementById("count");
+  if (count) count.textContent = nations.length + " REALMS";
   const focus = byId(selected);
   const foe = focus && focus.atWar.size ? byId([...focus.atWar][0]) : null;
   document.getElementById("focus").textContent = focus ? focus.name : "The world";
   document.getElementById("stats").innerHTML = focus
-    ? "Founded " + focus.born + "<br>Provinces " + focus.pops + "<br>Stability " + Math.round(focus.stability) + "<br>Reach " + Math.round(focus.reach || 0) + (foe ? "<br>At war with " + foe.name : "")
-    : nations.length + " living realms";
+    ? row("Founded", focus.born) + row("Provinces", focus.pops) + row("Stability", Math.round(focus.stability)) + row("Reach", Math.round(focus.reach || 0)) + row("Status", foe ? "War with " + foe.name : "At peace")
+    : row("Realms", nations.length);
   const list = document.getElementById("list");
   list.innerHTML = "";
   [...nations].sort((a, b) => b.pops - a.pops).slice(0, 14).forEach(n => {
     const li = document.createElement("li");
-    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span>' + n.name + '</span><span class="muted" style="margin-left:auto">' + n.pops + '</span>';
+    if (n.id === selected) li.className = "on";
+    li.innerHTML = '<i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + n.pops + '</span>';
     li.onclick = () => { selected = n.id; drawUI(); };
     list.appendChild(li);
   });
-  document.getElementById("log").innerHTML = logLines.map(l => "<div>" + l + "</div>").join("");
+  document.getElementById("log").innerHTML = logLines.map(l => {
+    const i = l.indexOf(":");
+    const y = i < 0 ? "" : l.slice(0, i);
+    const t = i < 0 ? l : l.slice(i + 1).trim();
+    return '<div class="ev"><span>' + y + '</span><p>' + t + '</p></div>';
+  }).join("");
   document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
 }
 
@@ -596,9 +741,34 @@ canvas.addEventListener("click", e => {
   if (grid && grid[y] && grid[y][x] === LAND && owner[y][x] >= 0) selected = owner[y][x];
   drawUI();
 });
+canvas.addEventListener("mousemove", e => {
+  const tip = document.getElementById("tip");
+  if (!tip || !grid) return;
+  const r = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * COLS);
+  const y = Math.floor((e.clientY - r.top) / r.height * ROWS);
+  let label = "Ocean";
+  if (grid[y] && grid[y][x] === LAND) label = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Realm") : "Unclaimed";
+  tip.textContent = label;
+  tip.style.display = "block";
+  tip.style.left = (e.clientX + 14) + "px";
+  tip.style.top = (e.clientY + 14) + "px";
+});
+canvas.addEventListener("mouseleave", () => {
+  const tip = document.getElementById("tip");
+  if (tip) tip.style.display = "none";
+});
 document.getElementById("newmap").onclick = generate;
 document.getElementById("pause").onclick = () => { paused = !paused; drawUI(); };
-document.getElementById("speed").onchange = () => {};
+const speedBox = document.getElementById("speed");
+if (speedBox && speedBox.querySelectorAll) {
+  speedBox.querySelectorAll("button").forEach(b => {
+    b.onclick = () => {
+      speed = Number(b.dataset.s);
+      speedBox.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    };
+  });
+}
 
 let last = 0;
 function loop(t) {
@@ -606,7 +776,7 @@ function loop(t) {
   const dt = t - last;
   last = t;
   if (!paused) {
-    acc += dt * Number(document.getElementById("speed").value);
+    acc += dt * speed;
     while (acc > 280) { acc -= 280; step(); }
     render();
   }
