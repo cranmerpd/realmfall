@@ -306,12 +306,12 @@ function cityLines(n) {
 }
 function cogLines(n) {
   const list = (units || []).filter(u => u.kind === "cog" && u.owner === n.id);
-  if (!list.length) return '<p class="quiet-line">No grain is moving by sea. A ship sails only when a far port is short.</p>';
-  return list.map(u => '<p class="quiet-line">Grain ship to ' + (u.destName || "a port") + '.</p>').join("");
+  if (!list.length) return '<p class="quiet-line">No merchant is sailing. One sails when grain is waiting and there is a colony or a trade partner across the water.</p>';
+  return list.map(u => '<p class="quiet-line">Merchant ship to ' + (u.destName || "a port") + (u.cargo > 0 ? ", grain aboard" : ", heading home") + '.</p>').join("");
 }
 function bargeLines(n) {
   const list = (units || []).filter(u => u.kind === "barge" && u.owner === n.id);
-  if (!list.length) return row("Barges", "None") + '<p class="quiet-line">No city downstream is short, so nothing is on the river.</p>';
+  if (!list.length) return row("Barges", "None") + '<p class="quiet-line">No surplus is moving down this river.</p>';
   return row("Barges", list.length) + list.slice(0, 4).map(u => '<p class="quiet-line">Carrying grain to ' + (u.destName || "a city") + '.</p>').join("");
 }
 function partyBlock(n) {
@@ -364,12 +364,12 @@ function realmWater(n) {
   const hulls = unitCount(n.id, "warship") + unitCount(n.id, "cog") + unitCount(n.id, "barge");
   return row("Hulls on the map", hulls)
     + row("Warships", unitCount(n.id, "warship"))
-    + row("Hosts", unitCount(n.id, "host"))
+    + row("Armies", unitCount(n.id, "host"))
     + row("Seamanship", seaWord(n))
     + bargeLines(n)
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
-    + '<p class="quiet-line">A warship stays off this coast. It does not sail to another continent. A barge stays inside the border unless a river pact lets it hand the grain over.</p>'
+    + '<p class="quiet-line">At peace a warship patrols this coast. In a war it sails for the enemy coast. A barge carries surplus downriver and stops at a border unless there is a pact. A merchant crosses the sea to a colony or a partner.</p>'
     + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
 }
@@ -377,7 +377,7 @@ function realmWater(n) {
 function situation(n) {
   if (n.parched) return "Drought. The river's country is failing, and the cities feel it.";
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
-  if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The host is standing on thin country, and the men are going hungry.";
+  if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The army is standing on thin country, and the men are going hungry.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
   if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
@@ -500,9 +500,9 @@ canvas.addEventListener("mousemove", e => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
       if (u.kind === "barge") return "Barge of " + name + " · grain to " + (u.destName || "a city");
-      if (u.kind === "cog") return "Grain ship of " + name + " · to " + (u.destName || "a port");
-      if (u.kind === "warship") return "Warship of " + name;
-      return "Host of " + name + " · " + fmt(u.men);
+      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.cargo > 0 ? "grain to " : "home from ") + (u.destName || "a port");
+      if (u.kind === "warship") return "Warship of " + name + (u.mission ? " · " + (u.mode === "war" ? "sailing to " : u.mode === "return" ? "returning to " : "") + u.mission : " · patrolling the coast");
+      return "Army of " + name + " · " + fmt(u.men);
     }).join("  ·  ");
     label = grid[y] && grid[y][x] === LAND ? label + "  ·  " + bit : bit;
   }

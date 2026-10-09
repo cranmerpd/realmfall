@@ -1,5 +1,15 @@
-const VERSION = "0.16";
+const VERSION = "0.17";
 const HISTORY = [
+  {
+    v: "0.17",
+    date: "9 Oct 2026",
+    items: [
+      "A warship patrols its own coast in peace. In a war it crosses the ocean to the enemy coast, then comes home when the war ends.",
+      "A barge carries surplus grain downriver again. It still stops at a border unless there is a pact.",
+      "A merchant ship crosses the sea to a colony or a trade partner, delivers grain, and sails home for another load.",
+      "An army is called an army."
+    ]
+  },
   {
     v: "0.16",
     date: "9 Oct 2026",
