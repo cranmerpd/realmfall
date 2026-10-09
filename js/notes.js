@@ -1,5 +1,14 @@
-const VERSION = "0.15";
+const VERSION = "0.16";
 const HISTORY = [
+  {
+    v: "0.16",
+    date: "9 Oct 2026",
+    items: [
+      "A warship patrols its own coast and turns around. It does not cross the sea to another holding.",
+      "A barge stays inside the border. It hands grain to the next country only when the two have a river pact.",
+      "The Water sheet counts every hull on the map, so the number matches what you see."
+    ]
+  },
   {
     v: "0.15",
     date: "9 Oct 2026",

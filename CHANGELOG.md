@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16 — 9 Oct 2026
+
+- A warship patrols its own coast and turns around. It does not cross the sea to another holding.
+- A barge stays inside the border. It hands grain to the next country only when the two have a river pact.
+- The Water sheet counts every hull on the map, so the number matches what you see.
+
 ## 0.15 — 9 Oct 2026
 
 - A barge only leaves when a city downstream is short of grain. One boat on a river, and the panel says which city it is feeding.

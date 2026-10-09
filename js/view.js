@@ -44,11 +44,12 @@ function placeOf(u) {
   const i = Math.min(pts.length - 2, Math.floor(span));
   const t = span - i;
   const a = pts[i], b = pts[i + 1];
-  return {
-    x: a[0] + (b[0] - a[0]) * t + 0.5,
-    y: a[1] + (b[1] - a[1]) * t + 0.5,
-    hdg: Math.atan2(b[1] - a[1], b[0] - a[0])
-  };
+  let dx = b[0] - a[0];
+  if (dx > COLS / 2) dx -= COLS;
+  if (dx < -COLS / 2) dx += COLS;
+  const dy = b[1] - a[1];
+  if (Math.abs(dx) > 1.5 || Math.abs(dy) > 1.5) return { x: u.x + 0.5, y: u.y + 0.5, hdg: -Math.PI / 2 };
+  return { x: a[0] + dx * t + 0.5, y: a[1] + dy * t + 0.5, hdg: Math.atan2(dy, dx) };
 }
 function drawBoat(x, y, color, hdg, scale, mast) {
   ctx.save();
@@ -119,9 +120,9 @@ function drawUnits(cw, ch) {
       ctx.fillRect(-s, -s, s * 2, s * 2);
       ctx.strokeRect(-s, -s, s * 2, s * 2);
       ctx.restore();
-    } else if (u.kind === "barge") drawBoat(x, y, n.color, p.hdg, 0.72, null);
+    } else if (u.kind === "barge") drawBoat(x, y, n.color, p.hdg, 0.62, null);
     else if (u.kind === "cog") drawBoat(x, y, n.color, p.hdg, 1, "cog");
-    else drawBoat(x, y, n.color, p.hdg, 1.35, "war");
+    else if (u.kind === "warship") drawBoat(x, y, n.color, p.hdg, 1.35, "war");
   }
 }
 function render() {
@@ -360,12 +361,15 @@ function realmRule(n) {
     + partyBlock(n);
 }
 function realmWater(n) {
-  return row("Seamanship", seaWord(n))
-    + bargeLines(n)
+  const hulls = unitCount(n.id, "warship") + unitCount(n.id, "cog") + unitCount(n.id, "barge");
+  return row("Hulls on the map", hulls)
     + row("Warships", unitCount(n.id, "warship"))
     + row("Hosts", unitCount(n.id, "host"))
+    + row("Seamanship", seaWord(n))
+    + bargeLines(n)
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
+    + '<p class="quiet-line">A warship stays off this coast. It does not sail to another continent. A barge stays inside the border unless a river pact lets it hand the grain over.</p>'
     + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
 }

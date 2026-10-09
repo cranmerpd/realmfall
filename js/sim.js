@@ -1130,6 +1130,9 @@ function downstreamShort(x, y, ownerId) {
     if (owner[ny][nx] === ownerId) {
       const city = cities.find(c => c.x === nx && c.y === ny);
       if (city && city.fed != null && city.fed < 0.9) return city;
+    } else if (owner[ny][nx] >= 0) {
+      const a = byId(ownerId), b = byId(owner[ny][nx]);
+      if (!(a && b && pactOn(a, b.id))) return null;
     }
     cx = nx;
     cy = ny;
@@ -1226,11 +1229,19 @@ function stepBarge(u) {
     const downId = owner[ny][nx];
     if (downId >= 0 && downId !== u.owner) {
       const a = byId(u.owner), b = byId(downId);
-      if (a && b && (a.atWar.has(b.id) || b.atWar.has(a.id))) {
+      const war = a && b && (a.atWar.has(b.id) || b.atWar.has(a.id));
+      if (war) {
         dropFood(nx, ny, u.cargo * 0.5);
-        if ((year + u.id) % 6 === 0) chronicle(year, "A barge of " + a.name + " is taken on the river by " + b.name + ".");
+        if ((year + u.id) % 8 === 0) chronicle(year, "A barge of " + a.name + " is taken on the river by " + b.name + ".");
         return false;
       }
+      if (a && b && pactOn(a, b.id)) {
+        dropFood(nx, ny, u.cargo);
+        if ((year + u.id) % 10 === 0) chronicle(year, a.name + " delivers grain downriver to " + b.name + ".");
+        return false;
+      }
+      dropFood(u.x, u.y, u.cargo);
+      return false;
     }
     const city = cities.find(c => c.x === nx && c.y === ny);
     if (city && owner[ny][nx] === u.owner && (city.fed == null || city.fed < 0.94) && u.cargo > 0) {
@@ -1359,44 +1370,55 @@ function boatsBeside(id) {
   return n;
 }
 
-function ensureWarships(n) {
-  if ((n.sea || 0) < 0.22 || unitCount(n.id, "warship") >= (seaRange(n) >= 22 ? 2 : 1)) return;
-  if (!n.atWar.size && (n.sea || 0) < 0.5) return;
+function homeShore(n) {
   const home = portOf(n);
-  if (!home) return;
-  const water = neighbors(home.x, home.y).find(([x, y]) => grid[y][x] !== LAND);
-  if (!water) return;
-  units.push({ id: nextUnit++, kind: "warship", owner: n.id, x: water[0], y: water[1], men: 0, cargo: 0, pts: [[water[0], water[1]]] });
-  chronicle(year, n.name + " puts a warship off " + home.name + ".");
+  if (!home) return [];
+  const start = neighbors(home.x, home.y).find(([x, y]) => grid[y][x] !== LAND);
+  if (!start) return [];
+  const seen = new Set();
+  const q = [start];
+  const cells = [];
+  while (q.length && cells.length < 48) {
+    const [x, y] = q.shift();
+    const k = key(x, y);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (!neighbors(x, y).some(([nx, ny]) => owner[ny][nx] === n.id)) continue;
+    cells.push([x, y]);
+    for (const [nx, ny] of neighbors(x, y)) {
+      if (grid[ny][nx] === LAND || seen.has(key(nx, ny))) continue;
+      q.push([nx, ny]);
+    }
+  }
+  return cells;
 }
 
-function coastRing(id) {
-  const cells = [];
-  const seen = new Set();
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    if (owner[y][x] !== id || !(coast && coast[y][x])) continue;
-    for (const [nx, ny] of neighbors(x, y)) {
-      if (grid[ny][nx] === LAND) continue;
-      const k = key(nx, ny);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      cells.push([nx, ny]);
-    }
+function orderShore(cells, x, y) {
+  if (!cells.length) return [];
+  const set = new Set(cells.map(([a, b]) => key(a, b)));
+  let cur = cells.find(([a, b]) => a === x && b === y) || cells[0];
+  const path = [cur];
+  const used = new Set([key(cur[0], cur[1])]);
+  while (path.length < cells.length) {
+    const nxt = neighbors(cur[0], cur[1]).find(([a, b]) => set.has(key(a, b)) && !used.has(key(a, b)));
+    if (!nxt) break;
+    used.add(key(nxt[0], nxt[1]));
+    path.push(nxt);
+    cur = nxt;
   }
-  if (cells.length < 2) return cells;
-  const left = cells.slice(1);
-  const ring = [cells[0]];
-  while (left.length && ring.length < 60) {
-    const [x, y] = ring[ring.length - 1];
-    let bi = 0, bd = 99;
-    for (let i = 0; i < left.length; i++) {
-      const d = Math.hypot(left[i][0] - x, left[i][1] - y);
-      if (d < bd) { bd = d; bi = i; }
-    }
-    if (bd > 1.5) break;
-    ring.push(left.splice(bi, 1)[0]);
-  }
-  return ring;
+  return path;
+}
+
+function ensureWarships(n) {
+  const cap = seaRange(n) >= 22 ? 2 : 1;
+  if ((n.sea || 0) < 0.22 || unitCount(n.id, "warship") >= cap) return;
+  if (!n.atWar.size && (n.sea || 0) < 0.5) return;
+  const shore = homeShore(n);
+  if (shore.length < 1) return;
+  const spot = shore[Math.min(shore.length - 1, unitCount(n.id, "warship") * 4)];
+  units.push({ id: nextUnit++, kind: "warship", owner: n.id, x: spot[0], y: spot[1], men: 0, cargo: 0, dir: 1, pi: 0, pts: [[spot[0], spot[1]]] });
+  const home = portOf(n);
+  chronicle(year, n.name + " puts a warship off " + (home ? home.name : "its coast") + ".");
 }
 
 function stepWarship(u) {
@@ -1406,12 +1428,27 @@ function stepWarship(u) {
     chronicle(year, n.name + " lays up a warship. There is not enough food to keep the crew at sea.");
     return false;
   }
-  if (!u.ring || !u.ring.length || year % 12 === 0) u.ring = coastRing(n.id);
-  if (!u.ring || u.ring.length < 2) return true;
+  if (!u.path || u.path.length < 2) {
+    u.path = orderShore(homeShore(n), u.x, u.y);
+    u.pi = Math.max(0, u.path.findIndex(([a, b]) => a === u.x && b === u.y));
+    u.dir = u.dir || 1;
+  }
+  if (!u.path || u.path.length < 2) return true;
+  let next = u.pi + u.dir;
+  if (next < 0 || next >= u.path.length) {
+    u.dir = -u.dir;
+    next = u.pi + u.dir;
+  }
+  if (next < 0 || next >= u.path.length) return true;
+  const cell = u.path[next];
+  if (!neighbors(u.x, u.y).some(([a, b]) => a === cell[0] && b === cell[1])) {
+    u.path = null;
+    return true;
+  }
   track(u);
-  u.wi = ((u.wi || 0) + 1) % u.ring.length;
-  u.x = u.ring[u.wi][0];
-  u.y = u.ring[u.wi][1];
+  u.pi = next;
+  u.x = cell[0];
+  u.y = cell[1];
   moved(u);
   return true;
 }
@@ -1852,12 +1889,17 @@ function feed() {
         if (b) b.grain += grain * 0.35;
         grain = 0;
       } else if (a && b && pactOn(a, b.id)) {
-        a.grain += grain * 0.3;
-      } else if (a && b && grain > 500) {
-        if (!a.grievance) a.grievance = {};
-        if (!a.gnote) a.gnote = {};
-        a.grievance[b.id] = Math.min(70, (a.grievance[b.id] || 0) + 1.2);
-        a.gnote[b.id] = "because the grain goes downriver and does not come back";
+        inbound[ny][nx] += grain;
+        grain = 0;
+      } else if (a && b) {
+        a.grain += grain;
+        if (grain > 500) {
+          if (!a.grievance) a.grievance = {};
+          if (!a.gnote) a.gnote = {};
+          a.grievance[b.id] = Math.min(70, (a.grievance[b.id] || 0) + 1.2);
+          a.gnote[b.id] = "because the grain stops at the border";
+        }
+        grain = 0;
       }
     }
     inbound[ny][nx] += grain;
