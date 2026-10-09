@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.28 — 9 Oct 2026
+
+- A skirmish occupies a province. It is not annexed. A dictatorship takes that land in four years. A republic waits longer, and longer still when it is not trusted.
+- At a peace, ground that has been held is annexed. Ground that has not is handed back.
+- Each realm has a leader, and keeps a history of what was written about it. A monarch dies and another takes the crown. A republic elects. A restless dictatorship changes hands.
+- A crown can send a spy. The spy may be caught, may kill a leader, or may steal from a treasury.
+
 ## 0.27 — 9 Oct 2026
 
 - A realm does not learn from its neighbors, and a new realm does not inherit an age. The next age is bought with coin, and only if that resource is in its own land.

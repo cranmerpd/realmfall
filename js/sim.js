@@ -3,6 +3,8 @@ function generate() {
   grid = Array.from({ length: ROWS }, () => Array(COLS).fill(WATER));
   owner = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  occupy = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  occYear = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   layContinents();
   markCoast();
   placeClimate();
@@ -60,9 +62,10 @@ function found(x, y, name, color, why, gov, faithId, parent) {
     faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {},
     sea: coast && coast[y] && coast[y][x] ? 0.14 : 0,
     treasury: 220, timber: 0, ore: 0, oil: 0, silicon: 0,
-    age: 0, learn: 0, taxTake: 0, spent: 0, lastTrade: "",
+    age: 0, learn: 0, taxTake: 0, spent: 0, lastTrade: "", history: [],
     nextVote: g === "Republic" ? (year || 1000) + 28 : 0
   };
+  seatLeader(n);
   nations.push(n);
   const seat = placeCity(x, y, nameCity(), "city");
   n.seat = seat.id;
@@ -105,8 +108,16 @@ function claimDisk(n, r) {
 function chronicle(y, text) {
   if (!logLines) logLines = [];
   const when = SEASONS[season] ? y + " " + SEASONS[season] : String(y);
-  logLines.unshift(when + ": " + text);
-  logLines = logLines.slice(0, 16);
+  const line = when + ": " + text;
+  logLines.unshift(line);
+  logLines = logLines.slice(0, 28);
+  if (!nations) return;
+  for (const n of nations) {
+    if (!text.includes(n.name)) continue;
+    if (!n.history) n.history = [];
+    n.history.unshift(line);
+    n.history = n.history.slice(0, 36);
+  }
 }
 
 let nationMap = new Map();
@@ -122,6 +133,7 @@ function byId(id) {
 function atPeace(n, id) { return (n.peace[id] || 0) > year; }
 
 function makePeace(a, b, years) {
+  settleOccupied(a, b);
   a.atWar.delete(b.id);
   b.atWar.delete(a.id);
   delete a.wars[b.id];
@@ -133,6 +145,137 @@ function makePeace(a, b, years) {
   if (b.grievance) b.grievance[a.id] = 15;
   disbandHosts(a.id);
   disbandHosts(b.id);
+}
+
+function seatLeader(n) {
+  n.leader = { name: GIVEN[ri(GIVEN.length)], born: (year || 1000) - 24 - ri(32), took: year || 1000 };
+}
+
+function holdLand(x, y, id) {
+  if (!occupy) {
+    occupy = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+    occYear = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  }
+  if (grid[y][x] !== LAND || owner[y][x] < 0 || owner[y][x] === id) return;
+  if (occupy[y][x] !== id) occYear[y][x] = year;
+  occupy[y][x] = id;
+}
+
+function annexYears(n, x, y) {
+  if (!n) return 12;
+  if (n.gov === "Dictatorship") return 4;
+  if (n.gov === "Theocracy") return belief && belief[y][x] && belief[y][x][n.faith] > 0.5 ? 4 : 9;
+  if (n.gov === "Oligarchy") return 7;
+  if (n.gov === "Republic") return (n.legitimacy || 0) > 46 ? 11 : 18;
+  return 8;
+}
+
+function digestOccupation() {
+  if (!occupy) return;
+  const batch = new Map();
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const id = occupy[y][x];
+    if (id < 0) continue;
+    const sovId = owner[y][x];
+    if (sovId < 0 || sovId === id) { occupy[y][x] = -1; continue; }
+    const occ = byId(id), sov = byId(sovId);
+    if (!occ || !sov || !occ.atWar.has(sov.id)) { occupy[y][x] = -1; continue; }
+    if (year - (occYear[y][x] || year) < annexYears(occ, x, y)) continue;
+    claim(x, y, id);
+    occupy[y][x] = -1;
+    const k = id + ":" + sovId;
+    batch.set(k, (batch.get(k) || 0) + 1);
+  }
+  for (const [k, count] of batch) {
+    const [a, b] = k.split(":");
+    const occ = byId(+a), sov = byId(+b);
+    if (occ && sov) chronicle(year, occ.name + " annexes " + count + " occupied " + (count === 1 ? "province" : "provinces") + " of " + sov.name + ".");
+  }
+}
+
+function settleOccupied(a, b) {
+  if (!occupy || !a || !b) return;
+  let tookA = 0, tookB = 0, back = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const id = occupy[y][x];
+    const own = owner[y][x];
+    if (id < 0) continue;
+    if (!((id === a.id && own === b.id) || (id === b.id && own === a.id))) continue;
+    const holder = byId(id);
+    const held = year - (occYear[y][x] || year);
+    const keep = holder && (holder.gov === "Dictatorship" || (holder.gov === "Republic" ? held >= 8 && (holder.legitimacy || 0) > 42 : held >= 3));
+    if (keep) {
+      claim(x, y, id);
+      if (id === a.id) tookA++; else tookB++;
+    } else back++;
+    occupy[y][x] = -1;
+  }
+  if (tookA) chronicle(year, a.name + " annexes " + tookA + " occupied " + (tookA === 1 ? "province" : "provinces") + " of " + b.name + " at the peace.");
+  if (tookB) chronicle(year, b.name + " annexes " + tookB + " occupied " + (tookB === 1 ? "province" : "provinces") + " of " + a.name + " at the peace.");
+  if (back && !tookA && !tookB) chronicle(year, "Occupied ground between " + a.name + " and " + b.name + " is handed back.");
+}
+
+function court(n) {
+  if (!n.leader) seatLeader(n);
+  const age = year - n.leader.born;
+  if (n.gov === "Dictatorship" && (n.unrest || 0) > 34 && (n.id + year) % 7 === 0 && !n.atWar.size) {
+    const prev = n.leader.name;
+    seatLeader(n);
+    n.legitimacy = Math.max(8, (n.legitimacy || 40) - 8);
+    chronicle(year, "The dictatorship of " + n.name + " changes hands. " + prev + " is out. " + n.leader.name + " holds it.");
+    return;
+  }
+  if (age < 66 || rnd() > (age - 62) * 0.025) return;
+  const prev = n.leader.name;
+  seatLeader(n);
+  const line = n.gov === "Monarchy" ? prev + " dies. " + n.leader.name + " takes the crown of " + n.name + "."
+    : n.gov === "Theocracy" ? prev + " dies. " + n.leader.name + " is raised over the cult in " + n.name + "."
+    : n.gov === "Oligarchy" ? "The ports of " + n.name + " replace " + prev + " with " + n.leader.name + "."
+    : n.gov === "Republic" ? prev + " leaves office in " + n.name + ". " + n.leader.name + " follows."
+    : prev + " dies. " + n.leader.name + " takes the dictatorship of " + n.name + ".";
+  n.legitimacy = Math.max(12, (n.legitimacy || 40) - (n.gov === "Monarchy" || n.gov === "Dictatorship" ? 5 : 2));
+  chronicle(year, line);
+}
+
+function intrigue(n) {
+  if (!n || n.pops < 8 || (n.id + year) % 4 !== 0) return;
+  const price = n.gov === "Dictatorship" ? 34 : n.gov === "Republic" ? 86 : n.gov === "Theocracy" ? 52 : n.gov === "Oligarchy" ? 70 : 58;
+  if ((n.treasury || 0) < price + 50) return;
+  if (n.gov === "Republic" && !n.atWar.size && (n.legitimacy || 0) > 55) return;
+  if (n.gov === "Oligarchy" && !n.atWar.size) return;
+  let foe = null, heat = -1;
+  if (n.atWar.size) foe = byId([...n.atWar][0]);
+  else if (n.grievance) for (const id of Object.keys(n.grievance)) {
+    if ((n.grievance[id] || 0) > heat) { heat = n.grievance[id]; foe = byId(+id); }
+  }
+  if (!foe || foe.id === n.id || heat < 20 && !n.atWar.size) return;
+  if (n.gov === "Theocracy" && n.creed === foe.creed && !n.atWar.size) return;
+  n.treasury -= price;
+  const caught = rnd() < (n.gov === "Dictatorship" ? 0.16 : n.gov === "Republic" ? 0.4 : 0.28);
+  if (caught) {
+    if (!foe.grievance) foe.grievance = {};
+    foe.grievance[n.id] = (foe.grievance[n.id] || 0) + 18;
+    if (n.gov === "Republic") n.legitimacy = Math.max(8, (n.legitimacy || 40) - 7);
+    chronicle(year, "A spy of " + n.name + " is taken in " + foe.name + ".");
+    return;
+  }
+  const knife = rnd() < (n.gov === "Dictatorship" ? 0.34 : n.gov === "Theocracy" ? 0.14 : 0.07);
+  if (knife) {
+    if (!foe.leader) seatLeader(foe);
+    const dead = foe.leader.name;
+    seatLeader(foe);
+    foe.legitimacy = Math.max(8, (foe.legitimacy || 40) - (foe.gov === "Dictatorship" ? 12 : 6));
+    foe.unrest = (foe.unrest || 0) + (foe.gov === "Dictatorship" ? 14 : 6);
+    if (foe.gov === "Republic") foe.nextVote = year;
+    const turn = foe.gov === "Dictatorship" ? " The dictatorship changes hands." : foe.gov === "Republic" ? " An election is forced." : "";
+    chronicle(year, dead + " of " + foe.name + " is assassinated. " + foe.leader.name + " follows." + turn);
+    return;
+  }
+  const skim = Math.min(foe.treasury || 0, 40 + ri(50));
+  foe.treasury = Math.max(0, (foe.treasury || 0) - skim);
+  n.treasury = Math.min(12000, (n.treasury || 0) + Math.round(skim * 0.6));
+  if ((foe.grain || 0) > 300) foe.grain *= 0.92;
+  chronicle(year, n.name + " steals from the treasury of " + foe.name + ".");
 }
 
 function pactOn(n, id) { return !!(n.pact && n.pact[id] > year); }
@@ -359,8 +502,11 @@ function step() {
       measure(n);
       if (!n.atWar.size) grow(n);
       study(n);
+      court(n);
+      intrigue(n);
       considerCoup(n);
     }
+    digestOccupation();
     for (const n of nations.slice()) {
       if (!nations.includes(n) || !n.pops) continue;
       considerVote(n);
@@ -611,10 +757,24 @@ function extractLevy() {
       const town = cities.some(c => c.x === x && c.y === y || (owner[c.y] && owner[c.y][c.x] === n.id && Math.hypot(c.x - x, c.y - y) <= 3));
       work *= onWater || cities.some(c => c.x === x && c.y === y) ? 1 : town ? 0.7 : 0.4;
       if (n.gov === "Theocracy" && belief && belief[y][x] && (belief[y][x][n.faith] || 0) < 0.4) work *= 0.45;
-      if (kind === 1 && (n.age || 0) >= 1) { const cut = 7 * work; n.timber = (n.timber || 0) + cut; n.cutTimber += cut; }
-      else if (kind === 2 && (n.age || 0) >= 2) { const dug = 4.5 * work; n.ore = (n.ore || 0) + dug; n.dugOre += dug; }
-      else if (kind === 3 && (n.age || 0) >= 3) { const drawn = 3.2 * work; n.oil = (n.oil || 0) + drawn; n.drawnOil = (n.drawnOil || 0) + drawn; }
-      else if (kind === 4 && (n.age || 0) >= 4) { const cut = 1.4 * work; n.silicon = (n.silicon || 0) + cut; n.cutSilicon = (n.cutSilicon || 0) + cut; }
+      let cutKind = 0, cutAmt = 0;
+      if (kind === 1 && (n.age || 0) >= 1) { cutAmt = 7 * work; cutKind = 1; }
+      else if (kind === 2 && (n.age || 0) >= 2) { cutAmt = 4.5 * work; cutKind = 2; }
+      else if (kind === 3 && (n.age || 0) >= 3) { cutAmt = 3.2 * work; cutKind = 3; }
+      else if (kind === 4 && (n.age || 0) >= 4) { cutAmt = 1.4 * work; cutKind = 4; }
+      if (!cutKind) continue;
+      const occId = occupy && occupy[y][x];
+      const give = (who, amt, k) => {
+        if (!who || amt <= 0 || (who.age || 0) < k) return;
+        if (k === 1) { who.timber = (who.timber || 0) + amt; who.cutTimber += amt; }
+        else if (k === 2) { who.ore = (who.ore || 0) + amt; who.dugOre += amt; }
+        else if (k === 3) { who.oil = (who.oil || 0) + amt; who.drawnOil = (who.drawnOil || 0) + amt; }
+        else { who.silicon = (who.silicon || 0) + amt; who.cutSilicon = (who.cutSilicon || 0) + amt; }
+      };
+      if (occId >= 0 && occId !== n.id) {
+        give(byId(occId), cutAmt * 0.55, cutKind);
+        give(n, cutAmt * 0.2, cutKind);
+      } else give(n, cutAmt, cutKind);
     }
   }
   for (const n of nations) {
@@ -1121,12 +1281,13 @@ function warPush(n) {
         chronicle(year, n.name + " sends a missile into " + foe.name + ".");
       }
       if (power * (1 + m.friends * 0.05) > defense) {
-        claim(m.tx, m.ty, n.id);
-        for (const [px, py] of pocket) claim(px, py, n.id);
-        const dug = resource && resource[m.ty] && resource[m.ty][m.tx];
-        if (dug === 2) chronicle(year, n.name + " takes ore country from " + foe.name + ".");
-        else if (dug === 1 && city) chronicle(year, n.name + " takes the timber around " + city.name + ".");
-        if (city && !seat && tierAt(city.rank) >= 1) {
+        const already = occupy && occupy[m.ty][m.tx] === n.id;
+        holdLand(m.tx, m.ty, n.id);
+        for (const [px, py] of pocket) if (pocket.length <= 3) holdLand(px, py, n.id);
+        chronicle(year, already
+          ? "Another skirmish. " + n.name + " still holds occupied ground of " + foe.name + "."
+          : "A skirmish. " + n.name + " occupies a province of " + foe.name + ". It is not annexed.");
+        if (city && !already && !seat && tierAt(city.rank) >= 1) {
           const tier = tierAt(city.rank);
           foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - [0, 4, 9, 14, 18][tier]);
           foe.stability -= [0, 3, 7, 11, 14][tier];
@@ -1167,10 +1328,13 @@ function considerPacts() {
       if (a.atWar.size || b.atWar.size || pactOn(a, b.id)) continue;
       const riverPeace = sharesRiver(a, b);
       const complement = ((a.ore || 0) > 70 && (b.ore || 0) < 28) || ((b.ore || 0) > 70 && (a.ore || 0) < 28)
-        || ((a.timber || 0) > 120 && (b.timber || 0) < 40) || ((b.timber || 0) > 120 && (a.timber || 0) < 40);
+        || ((a.timber || 0) > 120 && (b.timber || 0) < 40) || ((b.timber || 0) > 120 && (a.timber || 0) < 40)
+        || ((a.oil || 0) > 24 && (b.oil || 0) < 8) || ((b.oil || 0) > 24 && (a.oil || 0) < 8)
+        || ((a.silicon || 0) > 8 && (b.silicon || 0) < 3) || ((b.silicon || 0) > 8 && (a.silicon || 0) < 3);
       if (!riverPeace && !complement) continue;
-      if ((borderCounts(a)[b.id] || 0) < 4) continue;
-      if (a.gov === "Dictatorship" || b.gov === "Dictatorship") continue;
+      if ((borderCounts(a)[b.id] || 0) < 4 && a.gov !== "Republic" && a.gov !== "Oligarchy" && b.gov !== "Republic" && b.gov !== "Oligarchy") continue;
+      if ((a.gov === "Dictatorship" || b.gov === "Dictatorship") && rnd() > 0.2) continue;
+      if (a.gov === "Monarchy" && b.gov === "Monarchy" && !riverPeace && rnd() > 0.45) continue;
       if (a.gov === "Theocracy" && (a.cultShare || 0) > 0.45 && a.creed !== b.creed) continue;
       if (b.gov === "Theocracy" && (b.cultShare || 0) > 0.45 && b.creed !== a.creed) continue;
       const heat = ((a.grievance && a.grievance[b.id]) || 0) + ((b.grievance && b.grievance[a.id]) || 0);
@@ -1180,7 +1344,9 @@ function considerPacts() {
       if (ap >= 2 || bp >= 2) continue;
       a.pact[b.id] = year + 80;
       b.pact[a.id] = year + 80;
-      const because = !riverPeace && ((a.ore || 0) > 70 || (b.ore || 0) > 70) ? "One has the ore the other lacks."
+      const because = (a.silicon || 0) > 8 || (b.silicon || 0) > 8 ? "One has the silicon the other lacks."
+        : (a.oil || 0) > 24 || (b.oil || 0) > 24 ? "One has the oil the other lacks."
+        : !riverPeace && ((a.ore || 0) > 70 || (b.ore || 0) > 70) ? "One has the ore the other lacks."
         : !riverPeace ? "One has the timber the other lacks."
         : "A river runs through both.";
       chronicle(year, a.name + " and " + b.name + " keep a trade peace. " + because);
@@ -1291,11 +1457,14 @@ function considerVote(n) {
   n.parties = list.sort((a, b) => b.w - a.w);
   const merchants = list.find(f => f.gov === "Republic");
   if (!pick || pick.gov === "Republic" || (merchants && merchants.w >= pick.w * 0.8)) {
-    if ((n.hungry || 0) > 0.1 || (n.unrest || 0) > 28) chronicle(year, n.name + " votes. The republic holds.");
+    const prev = n.leader && n.leader.name;
+    seatLeader(n);
+    chronicle(year, n.name + " elects " + n.leader.name + (prev ? ". " + prev + " leaves office." : "."));
     n.unrest = Math.max(0, (n.unrest || 0) - 4);
     return;
   }
   n.gov = pick.gov;
+  seatLeader(n);
   n.legitimacy = Math.max(16, (n.legitimacy || 40) - 14);
   n.stability = Math.max(8, (n.stability || 30) - 10);
   n.quietUntil = Math.max(n.quietUntil || 0, year + 30);
@@ -1337,6 +1506,7 @@ function considerCoup(n) {
   }
   if (!next || next === n.gov) return;
   n.gov = next;
+  seatLeader(n);
   n.legitimacy = next === "Republic" ? 52 : 38;
   n.stability = Math.max(14, (n.stability || 30) - 6);
   n.unrest = Math.max(0, unrest * 0.3);
@@ -1723,9 +1893,11 @@ function colonyPort(n) {
 
 function loadOutbound(n, destRealm) {
   const other = destRealm != null && destRealm !== n.id ? byId(destRealm) : null;
-  const grain = n.grain || 0, wood = n.timber || 0, ore = n.ore || 0;
+  const grain = n.grain || 0, wood = n.timber || 0, ore = n.ore || 0, oil = n.oil || 0, silicon = n.silicon || 0;
   if (other) {
     if ((other.hungry || 0) > 0.04 && grain > 450) return { good: "grain", cargo: Math.min(900, Math.round(grain * 0.22)) };
+    if ((other.silicon || 0) + 2 < silicon && silicon > 6 && (n.gov === "Republic" || n.gov === "Oligarchy" || (other.age || 0) >= 4)) return { good: "silicon", cargo: Math.min(4, Math.round(silicon * 0.2)) };
+    if ((other.oil || 0) + 4 < oil && oil > 16) return { good: "oil", cargo: Math.min(10, Math.round(oil * 0.16)) };
     if ((other.ore || 0) + 15 < ore && ore > 36) return { good: "ore", cargo: Math.min(28, Math.round(ore * 0.18)) };
     if ((other.timber || 0) + 20 < wood && wood > 50) return { good: "timber", cargo: Math.min(36, Math.round(wood * 0.16)) };
     if (grain > 800) return { good: "grain", cargo: Math.min(700, Math.round(grain * 0.12)) };
@@ -1741,6 +1913,8 @@ function takeCargo(n, offer) {
   if (offer.good === "grain" && (n.grain || 0) >= offer.cargo) { n.grain -= offer.cargo; return true; }
   if (offer.good === "timber" && (n.timber || 0) >= offer.cargo) { n.timber -= offer.cargo; return true; }
   if (offer.good === "ore" && (n.ore || 0) >= offer.cargo) { n.ore -= offer.cargo; return true; }
+  if (offer.good === "oil" && (n.oil || 0) >= offer.cargo) { n.oil -= offer.cargo; return true; }
+  if (offer.good === "silicon" && (n.silicon || 0) >= offer.cargo) { n.silicon -= offer.cargo; return true; }
   return false;
 }
 
@@ -1751,9 +1925,11 @@ function landCargo(u) {
   const who = buyer || n;
   if (u.good === "timber") who.timber = Math.min(5000, (who.timber || 0) + u.cargo);
   else if (u.good === "ore") who.ore = Math.min(3500, (who.ore || 0) + u.cargo);
+  else if (u.good === "oil") who.oil = Math.min(2000, (who.oil || 0) + u.cargo);
+  else if (u.good === "silicon") who.silicon = Math.min(600, (who.silicon || 0) + u.cargo);
   else dropFood(u.dx, u.dy, u.cargo);
   if (buyer) {
-    const ask = u.good === "ore" ? u.cargo * 4 : u.good === "timber" ? Math.round(u.cargo * 2.5) : Math.max(6, Math.round(u.cargo / 25));
+    const ask = u.good === "silicon" ? u.cargo * 14 : u.good === "oil" ? u.cargo * 6 : u.good === "ore" ? u.cargo * 4 : u.good === "timber" ? Math.round(u.cargo * 2.5) : Math.max(6, Math.round(u.cargo / 25));
     const paid = Math.min(buyer.treasury || 0, ask);
     buyer.treasury = (buyer.treasury || 0) - paid;
     n.treasury = Math.min(12000, (n.treasury || 0) + paid);

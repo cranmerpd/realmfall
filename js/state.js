@@ -9,11 +9,12 @@ const FAITH_POOL = ["Ashen Rite", "High Canon", "Old Grove", "Sun Creed", "Pale 
 const FAITH_COLORS = ["#c4a574", "#7f97a8", "#7ea36d", "#c48b9a", "#d2c07a", "#8d7cc4"];
 const GOVS = ["Monarchy", "Republic", "Dictatorship", "Oligarchy", "Theocracy"];
 const AGES = ["Primitive", "Timber", "Metal", "Oil", "Silicon"];
+const GIVEN = ["Alden", "Mira", "Cassian", "Ivo", "Sera", "Otto", "Nima", "Harun", "Edith", "Leif", "Pavel", "Ysolde", "Tomas", "Anwen", "Davor", "Sibley", "Rook", "Maren"];
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
-let elev, river, riverSys, flowToX, flowToY, basin, dry, resource, cold, ration;
+let elev, river, riverSys, flowToX, flowToY, basin, dry, resource, cold, ration, occupy, occYear;
 let nextId = 1;
 let nextCity = 1;
 let cities = [];

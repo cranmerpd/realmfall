@@ -170,6 +170,14 @@ function render() {
       }
       ctx.fillStyle = fill;
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
+      const occ = occupy && occupy[y][x];
+      if (occ >= 0 && occ !== id && mapMode === "politics") {
+        const ink = byId(occ)?.color || "#f4f7fc";
+        ctx.fillStyle = ink;
+        ctx.globalAlpha = 0.55;
+        ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) * 0.35);
+        ctx.globalAlpha = 1;
+      }
     }
   }
   if (selected != null) {
@@ -492,6 +500,7 @@ function realmRule(n) {
     : "";
   return row("Government", govLabel(n.gov))
     + cult
+    + row("Leader", n.leader ? n.leader.name + " · age " + Math.max(16, year - n.leader.born) : "—")
     + row("Age", (AGES[n.age || 0] || "Primitive"))
     + ((n.age || 0) < 4 ? row("Next", nextArt(n)) : "")
     + row("Legitimacy", Math.round(n.legitimacy || 0))
@@ -544,7 +553,7 @@ function situation(n) {
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
   if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The army is standing on thin country, and the men are going hungry.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
-  if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
+  if (foe) return "At war with " + foe.name + ". A won skirmish occupies a province. Annexation comes later, and a dictatorship does it sooner than a republic.";
   if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
   if (n.gov === "Oligarchy") return "An oligarchy. The ports pay for the state. The inland provinces do not share in it.";
   if (n.gov === "Theocracy") return "A theocracy. It preaches the capital's cult inside its own borders, and it will fight a neighbor who does not keep it. Conquest does not convert the people.";
@@ -563,8 +572,8 @@ function faithCensus() {
   return rows;
 }
 
-function chronicleHTML() {
-  return logLines.map(l => {
+function chronicleHTML(lines) {
+  return (lines || logLines || []).map(l => {
     const i = l.indexOf(":");
     const y = i < 0 ? "" : l.slice(0, i);
     const t = i < 0 ? l : l.slice(i + 1).trim();
@@ -612,7 +621,11 @@ function drawUI() {
       + '<div class="kicker">BELIEVERS</div><ul>' + rows + '</ul>'
       + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy keeps the cult its capital already had.") + '</p>';
   } else if (tab === "log") {
-    panel.innerHTML = '<div class="kicker">CHRONICLE</div><div id="log">' + chronicleHTML() + '</div>';
+    const own = focus && focus.history && focus.history.length;
+    panel.innerHTML = (own
+      ? '<div class="kicker">' + focus.name.toUpperCase() + '</div><div id="log">' + chronicleHTML(focus.history) + '</div>'
+      : '')
+      + '<div class="kicker">WORLD</div><div id="log">' + chronicleHTML(logLines) + '</div>';
   } else if (tab === "notes") {
     const notes = (typeof HISTORY === "undefined" ? [] : HISTORY).map(h =>
       '<article class="note"><h3>v' + h.v + '</h3><div class="when">' + h.date + '</div><ul>'
@@ -652,6 +665,7 @@ canvas.addEventListener("mousemove", e => {
     if (mapMode === "faith" && belief && belief[y] && belief[y][x]) {
       const s = belief[y][x];
       const order = [0, 1, 2].sort((a, b) => s[b] - s[a]);
+      const occ = occupy && occupy[y] && occupy[y][x] >= 0 && occupy[y][x] !== owner[y][x] ? "  ·  occupied by " + (byId(occupy[y][x])?.name || "another realm") : "";
       const who = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Unclaimed") : "Unclaimed";
       label = placeBit + faithName(order[0]) + " " + Math.round(s[order[0]] * 100) + "%"
         + (s[order[1]] > 0.12 ? "  ·  " + faithName(order[1]) + " " + Math.round(s[order[1]] * 100) + "%" : "")
@@ -659,6 +673,7 @@ canvas.addEventListener("mousemove", e => {
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
+        + (occupy && occupy[y] && occupy[y][x] >= 0 && occupy[y][x] !== owner[y][x] ? "  ·  occupied by " + (byId(occupy[y][x])?.name || "another realm") : "")
         + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : resource && resource[y] && resource[y][x] === 3 ? "  ·  oil" : resource && resource[y] && resource[y][x] === 4 ? "  ·  silicon" : "")
         + "  ·  " + climateWord(x, y);
     } else label = "Unclaimed  ·  " + souls;
