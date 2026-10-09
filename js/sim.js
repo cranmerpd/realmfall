@@ -327,7 +327,7 @@ function study(n) {
   const price = agePrice(n, next);
   n.learnPrice = price;
   const reserve = n.atWar.size ? 180 : 60;
-  if ((n.hungry || 0) > 0.12 || (n.treasury || 0) < price + reserve) return;
+  if ((n.hungry || 0) > 0.28 || (n.treasury || 0) < price + reserve) return;
   n.treasury -= price;
   n.age = next;
   const line = [
@@ -407,6 +407,7 @@ function components(cells) {
 }
 
 function recount() {
+  reindex();
   for (const n of nations) n.pops = 0;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const id = owner[y][x];
@@ -786,7 +787,8 @@ function extractLevy() {
     n.oil = Math.min(2000, n.oil || 0);
     n.silicon = Math.min(600, n.silicon || 0);
     const duty = (n.grain || 0) / (n.gov === "Oligarchy" || n.gov === "Republic" ? 50 : 95);
-    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + (n.drawnOil || 0) * 4 + (n.cutSilicon || 0) * 8 + duty;
+    const fedLevy = (n.people || 0) * (1 - Math.min(0.85, n.hungry || 0)) / 400;
+    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + (n.drawnOil || 0) * 4 + (n.cutSilicon || 0) * 8 + duty + fedLevy;
     n.taxTake = Math.round(base * taxRate(n));
     n.treasury = Math.min(12000, (n.treasury || 0) + n.taxTake);
     if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + ((n.hungry || 0) > 0.06 ? 0.9 : 0.15);
@@ -940,11 +942,11 @@ function settleFrontier(n, x, y) {
     const souls = pop[ny][nx] || 0;
     if (souls > best) { best = souls; donor = [nx, ny]; }
   }
-  if (!donor || best < (forced ? 260 : 300)) return false;
+  if (!donor || best < (forced ? 140 : 160)) return false;
   const frac = n.gov === "Dictatorship" ? 0.16 : n.gov === "Republic" ? 0.055 : n.gov === "Oligarchy" ? 0.07 : 0.09;
   let move = Math.round(best * frac);
-  move = Math.max(24, Math.min(best - 160, move));
-  if (move < 30) return false;
+  move = Math.max(16, Math.min(best - 80, move));
+  if (move < 16) return false;
   const locals = pop[y][x] || 0;
   let flight = n.gov === "Republic" ? 0.1 : n.gov === "Dictatorship" ? 0.28 : 0.2;
   if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x] && belief[y][x][n.faith] < 0.4) flight = 0.5;
@@ -978,6 +980,7 @@ function immigrate() {
   if (!pop || !belief) return;
   for (const n of nations) {
     if ((n.hungry || 0) < 0.08) continue;
+    let claimed = 0;
     let budget = Math.round((n.people || 2000) * 0.012 * ((n.treasury || 0) < 40 ? 1.35 : 1));
     for (let y = 0; y < ROWS && budget > 20; y++) for (let x = 0; x < COLS && budget > 20; x++) {
       if (owner[y][x] !== n.id || (pop[y][x] || 0) < 480) continue;
@@ -991,6 +994,7 @@ function immigrate() {
           pop[y][x] -= move;
           pop[ny][nx] = already + move;
           pourFaith(nx, ny, belief[y][x], already, move);
+          if (claimed < 2 && owner[ny][nx] < 0) { claim(nx, ny, n.id); claimed++; }
           budget -= move;
         } else if (dest >= 0 && dest !== n.id && admits(byId(dest), nx, ny, belief[y][x])) {
           const host = byId(dest);
@@ -1035,8 +1039,8 @@ function immigrate() {
 }
 
 function grow(n) {
-  if ((n.hungry || 0) > 0.2) return;
-  if ((n.treasury || 0) < 12) return;
+  if ((n.hungry || 0) > 0.4) return;
+  if ((n.treasury || 0) < 6) return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
   const reach = Math.max(3, n.reach || 3);
@@ -1054,18 +1058,20 @@ function grow(n) {
     const good = resource && resource[m.ty][m.tx];
     const wood = good === 1 ? (n.gov === "Oligarchy" ? 1.8 : 1.15) : 0;
     const metal = good === 2 ? (n.gov === "Dictatorship" ? 1.8 : 1.05) : 0;
+    const food = (n.hungry || 0) > 0.1 && fields && fields[m.ty][m.tx] ? 2.4 : 0;
     const near = m.d < 8 ? R.hold * 1.2 : 0;
-    m.score = m.friends * 1.4 + align * (n.drive || 0.5) + stretch + sea + wood + metal + near + rnd();
+    m.score = m.friends * 1.4 + align * (n.drive || 0.5) + stretch + sea + wood + metal + food + near + rnd();
   }
   moves.sort((a, b) => b.score - a.score);
   let take = (n.hungry || 0) < 0.08 ? 2 : 1;
-  if ((n.legitimacy || 60) < 36) take = 1;
+  if ((n.legitimacy || 60) < 36 || (n.treasury || 0) < 80) take = 1;
   take = Math.min(moves.length, take);
   for (let i = 0; i < take; i++) {
     const m = moves[i];
     if (owner[m.ty][m.tx] >= 0) continue;
+    if ((n.treasury || 0) < 6) break;
+    if (!settleFrontier(n, m.tx, m.ty)) continue;
     n.treasury = Math.max(0, (n.treasury || 0) - 6);
-    settleFrontier(n, m.tx, m.ty);
   }
 }
 
@@ -1430,7 +1436,7 @@ function seaRange(n) {
   if (s < 0.3) return 0;
   if (s < 0.55) return 4;
   if (s < 0.78) return 11;
-  return 22;
+  return 34;
 }
 
 function seaWord(n) {
@@ -1450,8 +1456,10 @@ function learnSea(n) {
     if ((n.grain || 0) > 1600) gain += 0.0022;
     if ((n.timber || 0) > 90) gain += 0.0018;
     if (n.lastTrade) gain += 0.0012;
+    if ((n.age || 0) >= 1) gain += 0.004;
     if ((n.treasury || 0) < 30) gain -= 0.004;
-    if ((n.hungry || 0) > 0.08 || n.parched) gain = -0.01;
+    if ((n.hungry || 0) > 0.22) gain = -0.008;
+    else if (n.parched) gain *= 0.25;
     n.sea = Math.max(0, Math.min(1, (n.sea || 0) + gain));
   }
   const now = seaRange(n);
@@ -1566,7 +1574,14 @@ function portOf(n) {
     const s = souls + ((c.fed == null || c.fed > 0.85) ? 500 : 0);
     if (s > score) { score = s; best = c; }
   }
-  if (best && score >= 700) return best;
+  if (best && score >= 280) return best;
+  let px = -1, py = -1, ps = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== n.id || !(coast && coast[y][x])) continue;
+    const souls = pop[y][x] || 0;
+    if (souls > ps) { ps = souls; px = x; py = y; }
+  }
+  if (ps >= 180) return { x: px, y: py, name: "the coast" };
   return null;
 }
 
@@ -1583,7 +1598,7 @@ function landfalls(x, y, range, selfId) {
   }
   const hits = [];
   const hitSeen = new Set();
-  while (qh < q.length && seen.size < 900) {
+  while (qh < q.length && seen.size < 1600) {
     const [cx, cy, d] = q[qh++];
     for (const [nx, ny] of neighbors(cx, cy)) {
       const k = key(nx, ny);
@@ -1606,10 +1621,28 @@ function seaSupplied(n, chunk) {
   return chunk.some(([x, y]) => coast && coast[y] && coast[y][x]);
 }
 
+function landHolds(id, x, y) {
+  const seen = new Set([key(x, y)]);
+  const q = [[x, y]];
+  let qi = 0;
+  while (qi < q.length && qi < 2500) {
+    const [cx, cy] = q[qi++];
+    const o = owner[cy][cx];
+    if (id < 0 ? o >= 0 : o === id) return true;
+    for (const [nx, ny] of neighbors(cx, cy)) {
+      const k = key(nx, ny);
+      if (seen.has(k) || grid[ny][nx] !== LAND) continue;
+      seen.add(k);
+      q.push([nx, ny]);
+    }
+  }
+  return false;
+}
+
 function sailTo(n, port, dest) {
   const from = pop[port.y][port.x] || 0;
   let party = Math.round(from * (n.gov === "Dictatorship" ? 0.12 : 0.07));
-  party = Math.max(36, Math.min(from - 480, party));
+  party = Math.max(36, Math.min(from - 180, party));
   if (party < 36) return false;
   const drown = Math.round(party * Math.min(0.45, 0.1 + dest.d * 0.012));
   const arrive = party - drown;
@@ -1627,6 +1660,27 @@ function sailTo(n, port, dest) {
       return true;
     }
   }
+  if (!foe && !landHolds(n.id, dest.x, dest.y)) {
+    if (landHolds(-1, dest.x, dest.y)) {
+      pop[port.y][port.x] = from;
+      return false;
+    }
+    const babyName = nameRealm();
+    const baby = found(dest.x, dest.y, babyName, colors[ri(colors.length)], "Ships from " + n.name + " settle a shore they cannot walk to. " + babyName + " is a people of its own, not a province of " + n.name + ".", "Monarchy", topFaith(port.x, port.y), n);
+    baby.age = n.age || 0;
+    baby.sea = Math.max(0.32, Math.min(0.55, (n.sea || 0.3) * 0.6));
+    baby.treasury = 160;
+    n.treasury = Math.max(0, (n.treasury || 0) - 40);
+    claimDisk(baby, 3);
+    const cells = cellsOf(baby.id);
+    const each = Math.max(40, Math.round(arrive / Math.max(1, cells.length)));
+    for (const [x, y] of cells) {
+      pop[y][x] = each;
+      if (belief && belief[port.y] && belief[port.y][port.x]) belief[y][x] = belief[port.y][port.x].slice();
+    }
+    n.grain = Math.max(0, (n.grain || 0) - 200);
+    return true;
+  }
   const flight = foe ? 0.45 : 0.22;
   const stayed = Math.round(locals * (1 - flight));
   pop[dest.y][dest.x] = Math.max(40, stayed + arrive);
@@ -1642,7 +1696,7 @@ function sailTo(n, port, dest) {
 
 function considerVoyage(n) {
   const range = seaRange(n);
-  if (!range || (n.hungry || 0) > 0.05 || n.pops < 8) return;
+  if (!range || (n.hungry || 0) > 0.22 || n.pops < 8) return;
   const chance = n.gov === "Oligarchy" ? 0.5 : n.gov === "Republic" ? 0.38 : n.gov === "Dictatorship" ? 0.2 : 0.16;
   if (rnd() > chance) return;
   const port = portOf(n);
@@ -2484,22 +2538,22 @@ function provinceStrain(n, x, y) {
   const R = rules(n.gov);
   const souls = (pop && pop[y][x]) || 0;
   const sea = coast && coast[y][x];
-  let s = d > 11 ? (d - 11) * (1.2 - R.hold) * 0.18 : 0;
+  let s = d > 12 ? (d - 12) * (1.35 - R.hold) * 0.22 : 0;
   if (souls < 1600 && !sea && R.trade > 0.6) s += 1.35;
   if (n.gov === "Dictatorship" && (n.legitimacy || 60) < 48) s += 1.5;
   if (n.gov === "Theocracy" && belief && belief[y][x] && belief[y][x][n.faith] < 0.34 && d > 8) s += (0.34 - belief[y][x][n.faith]) * 3.2;
   if ((n.treasury || 0) < 40 && d > 10) s += 0.85;
   if (n.gov === "Dictatorship" && (n.hungry || 0) > 0.05 && d > 8) s += 0.9;
   if (resource && resource[y][x] && d > 12 && (n.gov === "Oligarchy" || (n.treasury || 0) < 50)) s += 0.75;
-  if (n.gov === "Monarchy" && d < 18) s *= 0.4;
+  if (n.gov === "Monarchy" && d < 14) s *= 0.45;
   return s;
 }
 
 function considerRevolt(n) {
   if (!nations.includes(n) || n.atWar.size || year < (n.quietUntil || 0)) return;
   const cells = cellsOf(n.id);
-  if (cells.length < 80 || (n.reach || 0) < 16) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
-  const strained = cells.filter(([x, y]) => provinceStrain(n, x, y) > 1.15);
+  if (cells.length < 40 || (n.reach || 0) < 12) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
+  const strained = cells.filter(([x, y]) => provinceStrain(n, x, y) > 1);
   if (strained.length < 8) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
   const region = components(strained).find(c => c.length >= 8);
   if (!region) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
@@ -2527,7 +2581,7 @@ function considerRevolt(n) {
   if (blob.length < 8) { n.unrest = Math.max(0, (n.unrest || 0) - 5); return; }
   const take = new Set(blob.map(([x, y]) => key(x, y)));
   const remain = cells.filter(([x, y]) => !take.has(key(x, y)));
-  if (components(remain).length !== 1 || remain.length < n.pops * 0.86) {
+  if (components(remain).length !== 1 || remain.length < n.pops * 0.72) {
     n.unrest = Math.max(0, (n.unrest || 0) - 5);
     return;
   }
@@ -2625,7 +2679,7 @@ function peel(chunk, limit) {
 
 function absorbTiny() {
   for (const n of nations.slice()) {
-    if (!nations.includes(n) || n.pops >= 8 || year - n.born < 50) continue;
+    if (!nations.includes(n) || n.pops >= 8 || year - n.born < 100) continue;
     const cells = cellsOf(n.id);
     if (!cells.length) continue;
     const who = annex(cells);
