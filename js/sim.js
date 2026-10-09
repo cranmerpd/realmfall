@@ -937,7 +937,7 @@ function warPush(n) {
       if (pocket.some(([x, y]) => foe.capital && x === foe.capital.x && y === foe.capital.y)) continue;
       const city = cities.find(c => c.x === m.tx && c.y === m.ty);
       const seat = foe.capital && m.tx === foe.capital.x && m.ty === foe.capital.y;
-      const power = muster(n) * (0.94 + rnd() * 0.12) * hostFactor(n, m.tx, m.ty) * ((n.treasury || 0) < 40 ? 0.72 : 1) * ((n.hungry || 0) > 0.1 ? 0.84 : 1);
+      let power = muster(n) * (0.94 + rnd() * 0.12) * hostFactor(n, m.tx, m.ty) * ((n.treasury || 0) < 40 ? 0.72 : 1) * ((n.hungry || 0) > 0.1 ? 0.84 : 1);
       let defense = muster(foe) * (0.94 + rnd() * 0.12) * hostFactor(foe, m.tx, m.ty) * ((foe.treasury || 0) < 40 ? 0.8 : 1);
       const souls = (pop && pop[m.ty][m.tx]) || 0;
       if (city) defense *= [1.04, 1.1, 1.2, 1.32, 1.45][tierAt(city.rank)] + Math.min(0.08, souls / 100000);

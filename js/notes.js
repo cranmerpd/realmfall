@@ -1,5 +1,12 @@
-const VERSION = "0.20";
+const VERSION = "0.21";
 const HISTORY = [
+  {
+    v: "0.21",
+    date: "9 Oct 2026",
+    items: [
+      "A theocracy adjusting its strength in a fight no longer stops the year."
+    ]
+  },
   {
     v: "0.20",
     date: "9 Oct 2026",

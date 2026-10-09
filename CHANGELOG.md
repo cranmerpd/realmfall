@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21 — 9 Oct 2026
+
+- A theocracy adjusting its strength in a fight no longer stops the year.
+
 ## 0.20 — 9 Oct 2026
 
 - Faith is painted province by province. A cell takes the color of its majority, and a line is drawn where that majority changes.
