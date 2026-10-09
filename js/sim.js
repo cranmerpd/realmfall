@@ -1118,11 +1118,32 @@ function unitCount(id, kind) {
   return n;
 }
 
+function downstreamShort(x, y, ownerId) {
+  let cx = x, cy = y;
+  const seen = new Set();
+  for (let s = 0; s < 48; s++) {
+    const nx = flowToX[cy][cx], ny = flowToY[cy][cx];
+    if (nx < 0 || !grid[ny] || grid[ny][nx] !== LAND) return null;
+    const k = key(nx, ny);
+    if (seen.has(k)) return null;
+    seen.add(k);
+    if (owner[ny][nx] === ownerId) {
+      const city = cities.find(c => c.x === nx && c.y === ny);
+      if (city && city.fed != null && city.fed < 0.9) return city;
+    }
+    cx = nx;
+    cy = ny;
+  }
+  return null;
+}
+
 function launchBarge(x, y, ownerId, load) {
   if (!units || load < 200) return 0;
-  if (units.filter(u => u.kind === "barge").length >= 36) return 0;
-  if (units.some(u => u.kind === "barge" && u.x === x && u.y === y)) return 0;
-  units.push({ id: nextUnit++, kind: "barge", owner: ownerId, x, y, men: 0, cargo: load });
+  const sys = riverSys && riverSys[y][x];
+  if (units.some(u => u.kind === "barge" && u.owner === ownerId && sys && riverSys[u.y] && riverSys[u.y][u.x] === sys)) return 0;
+  const city = downstreamShort(x, y, ownerId);
+  if (!city) return 0;
+  units.push({ id: nextUnit++, kind: "barge", owner: ownerId, x, y, men: 0, cargo: load, destName: city.name, dx: city.x, dy: city.y });
   return load;
 }
 
@@ -1269,30 +1290,32 @@ function colonyPort(n) {
 }
 
 function ensureCogs(n) {
-  if ((n.sea || 0) < 0.16 || !(n.coasts || 0) || unitCount(n.id, "cog") >= 2) return;
+  if ((n.sea || 0) < 0.16 || !(n.coasts || 0) || (n.grain || 0) < 800 || unitCount(n.id, "cog")) return;
   const home = portOf(n);
   if (!home) return;
-  const stops = [];
+  let dest = null;
   const far = colonyPort(n);
-  if (far) stops.push(far);
-  if (n.pact) {
+  if (far) {
+    const chunk = components(cellsOf(n.id)).find(comp => comp.some(([x, y]) => x === far[0] && y === far[1]));
+    const city = chunk && cities.find(c => chunk.some(([x, y]) => x === c.x && y === c.y) && c.fed != null && c.fed < 0.9);
+    if (city) dest = { x: city.x, y: city.y, realm: n.id, name: city.name };
+  }
+  if (!dest && n.pact) {
     for (const id of Object.keys(n.pact)) {
       if (!(n.pact[id] > year)) continue;
       const other = byId(Number(id));
       const p = other && portOf(other);
-      if (p) stops.push([p.x, p.y, other.id]);
+      if (p && p.fed != null && p.fed < 0.9) { dest = { x: p.x, y: p.y, realm: other.id, name: p.name }; break; }
     }
   }
-  for (const stop of stops) {
-    if (unitCount(n.id, "cog") >= 2) break;
-    const dest = { x: stop[0], y: stop[1], realm: stop[2] || n.id };
-    if (units.some(u => u.kind === "cog" && u.owner === n.id && u.dx === dest.x && u.dy === dest.y)) continue;
-    const path = waterPath(home.x, home.y, dest.x, dest.y);
-    if (!path || path.length < 2) continue;
-    const destName = dest.realm === n.id ? "its far shore" : ((byId(dest.realm) && byId(dest.realm).name) || "a port");
-    units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: 0, men: 0, dx: dest.x, dy: dest.y, destRealm: dest.realm, destName, pts: [[path[0][0], path[0][1]]] });
-    chronicle(year, "A cog of " + n.name + " will carry grain to " + destName + ". It is not a warship.");
-  }
+  if (!dest) return;
+  const path = waterPath(home.x, home.y, dest.x, dest.y);
+  if (!path || path.length < 2) return;
+  const load = Math.min(1400, Math.round(n.grain * 0.35));
+  if (load < 400) return;
+  n.grain -= load;
+  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: load, men: 0, dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
+  chronicle(year, n.name + " sends grain by sea to " + dest.name + ".");
 }
 
 function stepCog(u) {
@@ -1304,24 +1327,11 @@ function stepCog(u) {
   }
   track(u);
   for (let s = 0; s < 2; s++) {
-    const next = u.pi + u.dir;
-    if (next >= u.path.length) {
+    if (u.pi + 1 >= u.path.length) {
       if (u.cargo > 0) dropFood(u.dx, u.dy, u.cargo);
-      u.cargo = 0;
-      u.dir = -1;
-      break;
+      return false;
     }
-    if (next < 0) {
-      u.dir = 1;
-      u.pi = 0;
-      if (!u.cargo && (n.grain || 0) > 700) {
-        const load = Math.min(1200, Math.round(n.grain * 0.16));
-        n.grain -= load;
-        u.cargo = load;
-      }
-      break;
-    }
-    u.pi = next;
+    u.pi += 1;
     u.x = u.path[u.pi][0];
     u.y = u.path[u.pi][1];
     moved(u);

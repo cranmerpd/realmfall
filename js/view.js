@@ -305,8 +305,13 @@ function cityLines(n) {
 }
 function cogLines(n) {
   const list = (units || []).filter(u => u.kind === "cog" && u.owner === n.id);
-  if (!list.length) return '<p class="quiet-line">No cog is sailing.</p>';
-  return list.map(u => '<p class="quiet-line">' + (u.cargo > 0 ? "Grain aboard, bound for " : "Sailing back from ") + (u.destName || "a port") + ".</p>").join("");
+  if (!list.length) return '<p class="quiet-line">No grain is moving by sea. A ship sails only when a far port is short.</p>';
+  return list.map(u => '<p class="quiet-line">Grain ship to ' + (u.destName || "a port") + '.</p>').join("");
+}
+function bargeLines(n) {
+  const list = (units || []).filter(u => u.kind === "barge" && u.owner === n.id);
+  if (!list.length) return row("Barges", "None") + '<p class="quiet-line">No city downstream is short, so nothing is on the river.</p>';
+  return row("Barges", list.length) + list.slice(0, 4).map(u => '<p class="quiet-line">Carrying grain to ' + (u.destName || "a city") + '.</p>').join("");
 }
 function partyBlock(n) {
   if (n.gov !== "Republic" || !n.parties || !n.parties.length) return '<p class="quiet-line">This state does not hold a vote.</p>';
@@ -356,12 +361,12 @@ function realmRule(n) {
 }
 function realmWater(n) {
   return row("Seamanship", seaWord(n))
-    + row("Barges", unitCount(n.id, "barge"))
+    + bargeLines(n)
     + row("Warships", unitCount(n.id, "warship"))
     + row("Hosts", unitCount(n.id, "host"))
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
-    + '<div class="kicker">COGS</div>'
+    + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
 }
 
@@ -490,8 +495,8 @@ canvas.addEventListener("mousemove", e => {
     const bit = here.map(u => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
-      if (u.kind === "barge") return "Barge of " + name + " · grain " + fmt(u.cargo);
-      if (u.kind === "cog") return "Cog of " + name + " · " + (u.cargo > 0 ? "grain to " : "returning from ") + (u.destName || "a port");
+      if (u.kind === "barge") return "Barge of " + name + " · grain to " + (u.destName || "a city");
+      if (u.kind === "cog") return "Grain ship of " + name + " · to " + (u.destName || "a port");
       if (u.kind === "warship") return "Warship of " + name;
       return "Host of " + name + " · " + fmt(u.men);
     }).join("  ·  ");

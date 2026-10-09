@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15 — 9 Oct 2026
+
+- A barge only leaves when a city downstream is short of grain. One boat on a river, and the panel says which city it is feeding.
+- The word cog is gone. A grain ship sails only to a far port that is actually hungry, delivers, and is done.
+
 ## 0.14 — 9 Oct 2026
 
 - A realm opens on Brief, Country, Rule, or Water, instead of one long list of every number.
