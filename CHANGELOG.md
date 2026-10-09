@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14 — 9 Oct 2026
+
+- A realm opens on Brief, Country, Rule, or Water, instead of one long list of every number.
+
 ## 0.13 — 9 Oct 2026
 
 - Coasts are no longer a darker band. A shore is just the edge of the land.

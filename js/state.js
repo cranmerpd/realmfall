@@ -22,4 +22,5 @@ let nextUnit = 1;
 let speed = 2;
 let mapMode = "politics";
 let tab = "realm";
+let sheet = "brief";
 

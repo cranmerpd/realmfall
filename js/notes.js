@@ -1,5 +1,12 @@
-const VERSION = "0.13";
+const VERSION = "0.14";
 const HISTORY = [
+  {
+    v: "0.14",
+    date: "9 Oct 2026",
+    items: [
+      "A realm opens on Brief, Country, Rule, or Water, instead of one long list of every number."
+    ]
+  },
   {
     v: "0.13",
     date: "9 Oct 2026",

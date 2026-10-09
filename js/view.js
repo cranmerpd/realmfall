@@ -259,6 +259,111 @@ function fmt(n) {
 function row(label, value) {
   return '<div class="row"><span>' + label + '</span><b>' + value + '</b></div>';
 }
+function vital(label, value) {
+  return '<div class="vital"><span>' + label + '</span><b>' + value + '</b></div>';
+}
+function meter(pct) {
+  const w = Math.max(0, Math.min(100, Math.round(pct)));
+  return '<div class="meter"><i style="width:' + w + '%"></i></div>';
+}
+function faithBar(shares, total) {
+  const t = total || (shares ? shares.reduce((s, n) => s + n, 0) : 0) || 1;
+  let html = '<div class="mix">';
+  for (let i = 0; i < 3; i++) html += '<i style="width:' + ((shares[i] || 0) / t * 100) + '%;background:' + faithColor(i) + '"></i>';
+  return html + "</div>";
+}
+function sheetNav() {
+  return '<div class="sheets">' + [["brief", "Brief"], ["country", "Country"], ["rule", "Rule"], ["water", "Water"]].map(([id, label]) =>
+    '<button type="button" data-sheet="' + id + '"' + (sheet === id ? ' class="on"' : "") + ">" + label + "</button>").join("") + "</div>";
+}
+function bindPanel() {
+  const panel = document.getElementById("panel");
+  if (!panel) return;
+  panel.querySelectorAll("[data-sheet]").forEach(b => { b.onclick = () => { sheet = b.dataset.sheet; drawUI(); }; });
+  panel.querySelectorAll("li[data-id]").forEach(li => { li.onclick = () => { selected = Number(li.dataset.id); tab = "realm"; drawUI(); }; });
+}
+function pactNames(n) {
+  if (!n.pact) return "None";
+  const names = [];
+  for (const id of Object.keys(n.pact)) {
+    if (!(n.pact[id] > year)) continue;
+    const o = byId(Number(id));
+    if (o) names.push(o.name);
+  }
+  return names.length ? names.join(", ") : "None";
+}
+function cityLines(n) {
+  const list = cities.filter(c => owner[c.y] && owner[c.y][c.x] === n.id)
+    .sort((a, b) => ((pop[b.y] && pop[b.y][b.x]) || 0) - ((pop[a.y] && pop[a.y][a.x]) || 0))
+    .slice(0, 6);
+  if (!list.length) return "";
+  return '<div class="kicker">PLACES</div>' + list.map(c => {
+    const seat = n.seat === c.id ? "Capital · " : "";
+    const fed = c.fed != null && c.fed < 0.9 ? " · hungry" : "";
+    return row(c.name, seat + c.rank + fed);
+  }).join("");
+}
+function cogLines(n) {
+  const list = (units || []).filter(u => u.kind === "cog" && u.owner === n.id);
+  if (!list.length) return '<p class="quiet-line">No cog is sailing.</p>';
+  return list.map(u => '<p class="quiet-line">' + (u.cargo > 0 ? "Grain aboard, bound for " : "Sailing back from ") + (u.destName || "a port") + ".</p>").join("");
+}
+function partyBlock(n) {
+  if (n.gov !== "Republic" || !n.parties || !n.parties.length) return '<p class="quiet-line">This state does not hold a vote.</p>';
+  const t = n.parties.reduce((s, f) => s + f.w, 0) || 1;
+  return n.parties.map(f => {
+    const pct = Math.round(100 * f.w / t);
+    return row(f.name, pct + "%") + meter(pct);
+  }).join("");
+}
+function realmBrief(n, foe) {
+  const shares = n.believers || [0, 0, 0];
+  return '<div class="vitals">'
+    + vital("People", fmt(n.people))
+    + vital("Hungry", Math.round((n.hungry || 0) * 100) + "%")
+    + vital("Legitimacy", Math.round(n.legitimacy || 0))
+    + vital("Provinces", n.pops || 0)
+    + "</div>"
+    + '<div class="kicker">FAITH HERE</div>'
+    + faithBar(shares)
+    + [0, 1, 2].map(i => row(faithName(i), Math.round((n.people ? shares[i] / n.people : 0) * 100) + "%")).join("")
+    + '<p class="quiet-line">' + (foe ? "At war with " + foe.name + "." : "At peace.")
+    + (n.parched ? " Drought on the river." : "")
+    + " Seamanship: " + seaWord(n) + ".</p>";
+}
+function realmCountry(n) {
+  const seat = cities.find(c => c.id === n.seat);
+  return row("Population", fmt(n.people))
+    + row("Per province", fmt(n.pops ? n.people / n.pops : 0))
+    + row("Provinces", n.pops || 0)
+    + row("Hungry", Math.round((n.hungry || 0) * 100) + "%")
+    + row("Grain at the ports", fmt(n.grain || 0))
+    + row("Fields", n.parched ? "Drought" : "Ordinary")
+    + row("Seat", seat ? seat.name : "—")
+    + cityLines(n);
+}
+function realmRule(n) {
+  return row("Government", govLabel(n.gov))
+    + row("Legitimacy", Math.round(n.legitimacy || 0))
+    + meter(n.legitimacy || 0)
+    + row("Stability", Math.round(n.stability || 0))
+    + meter(n.stability || 0)
+    + row("Unrest", Math.round(n.unrest || 0))
+    + meter(Math.min(100, n.unrest || 0))
+    + row("Prosperity", fmt(n.wealth))
+    + '<div class="kicker">PARTIES</div>'
+    + partyBlock(n);
+}
+function realmWater(n) {
+  return row("Seamanship", seaWord(n))
+    + row("Barges", unitCount(n.id, "barge"))
+    + row("Warships", unitCount(n.id, "warship"))
+    + row("Hosts", unitCount(n.id, "host"))
+    + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
+    + row("River trade", pactNames(n))
+    + '<div class="kicker">COGS</div>'
+    + cogLines(n);
+}
 
 function situation(n) {
   if (n.parched) return "Drought. The river's country is failing, and the cities feel it.";
@@ -313,7 +418,7 @@ function drawUI() {
   if (tab === "world") {
     let list = "";
     [...nations].sort((a, b) => (b.people || 0) - (a.people || 0)).forEach(n => {
-      list += '<li class="' + (n.id === selected ? "on" : "") + '" data-id="' + n.id + '"><i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="num">' + fmt(n.people) + '</span></li>';
+      list += '<li class="' + (n.id === selected ? "on" : "") + '" data-id="' + n.id + '"><i class="swatch" style="background:' + n.color + '"></i><span class="name">' + n.name + '</span><span class="meta">' + (n.atWar.size ? "At war" : govLabel(n.gov)) + '</span><span class="num">' + fmt(n.people) + '</span></li>';
     });
     panel.innerHTML = '<div class="kicker sub">WORLD</div>'
       + row("Continents", continents || 0)
@@ -322,11 +427,14 @@ function drawUI() {
       + '<div class="kicker">REALMS</div><ul id="list">' + list + '</ul>';
     panel.querySelectorAll("li").forEach(li => { li.onclick = () => { selected = Number(li.dataset.id); tab = "realm"; drawUI(); }; });
   } else if (tab === "faith") {
-    const rows = faithCensus().map(f => '<li><i class="swatch" style="background:' + f.color + '"></i><span class="name">' + f.name + '</span><span class="num">' + fmt(f.people) + '</span></li>').join("");
+    const census = faithCensus();
+    const total = census.reduce((s, f) => s + f.people, 0) || 1;
+    const rows = census.map(f => '<li><i class="swatch" style="background:' + f.color + '"></i><span class="name">' + f.name + '</span><span class="num">' + fmt(f.people) + '</span></li>').join("");
     const cults = nations.filter(n => n.gov === "Theocracy").map(n => n.name).join(", ");
-    panel.innerHTML = '<h2>Faith</h2><p id="blurb">Each province is a mix, not a flag. People pick up the faith of the people next to them, weighted by how many live there. The color on the Faith map is that mix. White lines are still the states.</p>'
+    panel.innerHTML = '<h2>Faith</h2><p id="blurb">Each province is a mix, not a flag. People pick up the faith of the people next to them. The color on the Faith map is that mix.</p>'
+      + faithBar(census.map(f => f.people), total)
       + '<div class="kicker">BELIEVERS</div><ul>' + rows + '</ul>'
-      + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy only keeps the cult its capital already had. It does not spread it.") + '</p>';
+      + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy keeps the cult its capital already had.") + '</p>';
   } else if (tab === "log") {
     panel.innerHTML = '<div class="kicker">CHRONICLE</div><div id="log">' + chronicleHTML() + '</div>';
   } else if (tab === "notes") {
@@ -336,37 +444,15 @@ function drawUI() {
     panel.innerHTML = '<h2>Notes</h2><p id="blurb">Version ' + (typeof VERSION === "undefined" ? "" : VERSION) + '. The whole simulation stays in this browser. Nothing is uploaded.</p>' + notes;
   } else {
     panel.innerHTML = focus
-      ? '<h2>' + focus.name + '</h2><p id="subtitle">' + govLabel(focus.gov) + '</p><p id="blurb">' + situation(focus) + '</p>'
-        + '<div class="kicker sub">PEOPLE</div>'
-        + row("Population", fmt(focus.people))
-        + row("Hungry", Math.round((focus.hungry || 0) * 100) + "%")
-        + row("Grain at the ports", fmt(focus.grain || 0))
-        + row("Fields", focus.parched ? "Drought" : "Ordinary")
-        + row("Provinces", focus.pops)
-        + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
-        + row("Seat", (() => { const s = cities.find(c => c.id === focus.seat); return s ? s.name + " · " + s.rank : "—"; })())
-        + row("Cities", cities.filter(c => owner[c.y] && owner[c.y][c.x] === focus.id).length)
-        + row("Largest faith", faithName(focus.creed) + " " + Math.round((focus.creedShare || 0) * 100) + "%")
-        + '<div class="kicker sub">STATE</div>'
-        + row("Government", govLabel(focus.gov))
-        + (focus.gov === "Republic" ? row("Parties", partyLine(focus)) : "")
-        + row("Seamanship", seaWord(focus))
-        + row("Barges", unitCount(focus.id, "barge"))
-        + row("Cogs", cogSummary(focus))
-        + row("Warships", unitCount(focus.id, "warship"))
-        + (boatsBeside(focus.id) ? row("Other boats here", boatsBeside(focus.id)) : "")
-        + row("Hosts", unitCount(focus.id, "host"))
-        + row("Legitimacy", Math.round(focus.legitimacy || 0))
-        + row("River pacts", focus.pacts || 0)
-        + row("Prosperity", fmt(focus.wealth))
-        + row("Stability", Math.round(focus.stability))
-        + row("Unrest", Math.round(focus.unrest || 0))
-        + row("Status", foe ? "War with " + foe.name : "At peace")
-      : '<h2>The world</h2><p id="blurb">Pick a realm on the map, or open World. Faith is a separate layer.</p>'
+      ? '<h2>' + focus.name + '</h2><p id="subtitle">' + govLabel(focus.gov) + (foe ? " · at war" : "") + '</p><p id="blurb">' + situation(focus) + '</p>'
+        + sheetNav()
+        + (sheet === "country" ? realmCountry(focus) : sheet === "rule" ? realmRule(focus) : sheet === "water" ? realmWater(focus) : realmBrief(focus, foe))
+      : '<h2>The world</h2><p id="blurb">Pick a realm on the map, or open World.</p>'
         + row("Continents", continents || 0)
         + row("Realms", nations.length)
         + row("Population", fmt(people));
   }
+  bindPanel();
 }
 
 canvas.addEventListener("click", e => {
