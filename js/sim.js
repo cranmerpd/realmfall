@@ -51,7 +51,8 @@ function found(x, y, name, color, why, gov, faithId) {
     id, name, color, born: year || 1000, stability: 70, legitimacy: 68, pops: 1,
     capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
-    faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {}
+    faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {}, sea: 0,
+    nextVote: g === "Republic" ? (year || 1000) + 28 : 0
   };
   nations.push(n);
   const seat = placeCity(x, y, nameCity(), "city");
@@ -197,6 +198,11 @@ function step() {
       grow(n);
       considerWar(n);
     }
+  }
+  for (const n of nations.slice()) {
+    if (!nations.includes(n) || !n.pops) continue;
+    considerVote(n);
+    considerVoyage(n);
   }
   considerPacts();
   settleWars();
@@ -468,6 +474,8 @@ function measure(n) {
   n.stability += (n.legitimacy - n.stability) * 0.06;
   if (n.atWar.size) n.stability -= n.gov === "Dictatorship" ? 0.45 : 0.22;
   n.stability = Math.max(4, Math.min(100, n.stability));
+  learnSea(n);
+  weighParties(n);
 }
 
 function emptyFrontier(n) {
@@ -904,6 +912,194 @@ function settleWars() {
   }
 }
 
+function seaRange(n) {
+  const s = n.sea || 0;
+  if (s < 0.3) return 0;
+  if (s < 0.55) return 4;
+  if (s < 0.78) return 11;
+  return 22;
+}
+
+function seaWord(n) {
+  const r = seaRange(n);
+  if (!r) return "None";
+  if (r <= 4) return "Straits";
+  if (r <= 11) return "Coasting";
+  return "Open sea";
+}
+
+function learnSea(n) {
+  const before = seaRange(n);
+  if (!(n.coasts || 0)) n.sea = Math.max(0, (n.sea || 0) - 0.008);
+  else {
+    const pace = rules(n.gov).sea / 1.3;
+    let gain = 0.0032 * pace;
+    if ((n.grain || 0) > 1600) gain += 0.0022;
+    if ((n.hungry || 0) > 0.08 || n.parched) gain = -0.01;
+    n.sea = Math.max(0, Math.min(1, (n.sea || 0) + gain));
+  }
+  const now = seaRange(n);
+  if (now > before && before === 0) chronicle(year, n.name + " puts to sea. A strait is no longer the edge of the world.");
+  else if (now > before && now >= 11 && before < 11) chronicle(year, n.name + " keeps a coasting trade.");
+  else if (now > before && now >= 22) chronicle(year, n.name + " can cross open water.");
+}
+
+function factions(n) {
+  const coastShare = n.pops ? (n.coasts || 0) / n.pops : 0;
+  const hungry = n.hungry || 0;
+  const cult = n.cultShare || 0;
+  const unrest = Math.min(1, (n.unrest || 0) / 80);
+  const rich = Math.min(1, (n.wealth || 0) / Math.max(1, n.pops) / 8);
+  return [
+    { gov: "Republic", name: "merchants", w: Math.max(0.15, 1.1 + coastShare * 1.6 + rich + (n.gov === "Republic" ? 0.7 : 0) - hungry * 2.4) },
+    { gov: "Oligarchy", name: "ports", w: Math.max(0, 0.15 + coastShare * 2 + (n.sea || 0) * 0.8) },
+    { gov: "Monarchy", name: "country", w: 0.35 + hungry * 2.4 + (1 - coastShare) * 0.7 },
+    { gov: "Theocracy", name: "cult", w: cult > 0.5 ? (cult - 0.35) * 3.2 : 0 },
+    { gov: "Dictatorship", name: "hard hand", w: unrest * 2.4 + (n.atWar.size ? 0.7 : 0) + ((n.legitimacy || 50) < 32 ? 0.8 : 0) }
+  ].filter(f => f.w > 0.05);
+}
+
+function weighParties(n) {
+  n.parties = n.gov === "Republic" ? factions(n).sort((a, b) => b.w - a.w) : null;
+}
+
+function partyLine(n) {
+  if (!n.parties || !n.parties.length) return "—";
+  const t = n.parties.reduce((s, f) => s + f.w, 0) || 1;
+  return n.parties.slice(0, 3).map(f => f.name + " " + Math.round(100 * f.w / t) + "%").join(" · ");
+}
+
+function considerVote(n) {
+  if (n.gov !== "Republic" || n.atWar.size || n.pops < 6) return;
+  if (!n.nextVote) n.nextVote = year + 20;
+  if (year < n.nextVote) return;
+  n.nextVote = year + 26 + ri(14);
+  const list = factions(n);
+  const total = list.reduce((s, f) => s + f.w, 0) || 1;
+  let roll = rnd() * total;
+  let pick = list[0];
+  for (const f of list) { roll -= f.w; if (roll <= 0) { pick = f; break; } }
+  n.parties = list.sort((a, b) => b.w - a.w);
+  if (!pick || pick.gov === "Republic") {
+    if ((n.hungry || 0) > 0.06 || (n.unrest || 0) > 20) chronicle(year, n.name + " votes. The merchants keep the republic.");
+    n.unrest = Math.max(0, (n.unrest || 0) - 6);
+    return;
+  }
+  n.gov = pick.gov;
+  n.legitimacy = Math.max(16, (n.legitimacy || 40) - 14);
+  n.stability = Math.max(8, (n.stability || 30) - 10);
+  n.quietUntil = Math.max(n.quietUntil || 0, year + 30);
+  chronicle(year, n.name + " votes. The " + pick.name + " carry it. The republic is now " + govArticle(pick.gov) + ".");
+}
+
+function portOf(n) {
+  let best = null, score = -1;
+  for (const c of cities) {
+    if (!owner[c.y] || owner[c.y][c.x] !== n.id || !(coast && coast[c.y][c.x])) continue;
+    const souls = pop[c.y][c.x] || 0;
+    const s = souls + ((c.fed == null || c.fed > 0.85) ? 500 : 0);
+    if (s > score) { score = s; best = c; }
+  }
+  if (best && score >= 700) return best;
+  return null;
+}
+
+function landfalls(x, y, range, selfId) {
+  const q = [];
+  let qh = 0;
+  const seen = new Set();
+  for (const [nx, ny] of neighbors(x, y)) {
+    if (grid[ny][nx] === LAND) continue;
+    const k = key(nx, ny);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    q.push([nx, ny, 1]);
+  }
+  const hits = [];
+  const hitSeen = new Set();
+  while (qh < q.length && seen.size < 900) {
+    const [cx, cy, d] = q[qh++];
+    for (const [nx, ny] of neighbors(cx, cy)) {
+      const k = key(nx, ny);
+      if (grid[ny][nx] === LAND) {
+        if (owner[ny][nx] === selfId || hitSeen.has(k)) continue;
+        hitSeen.add(k);
+        hits.push({ x: nx, y: ny, d, owner: owner[ny][nx] });
+      } else if (!seen.has(k) && d < range) {
+        seen.add(k);
+        q.push([nx, ny, d + 1]);
+      }
+    }
+  }
+  return hits;
+}
+
+function seaSupplied(n, chunk) {
+  if (seaRange(n) <= 0) return false;
+  if (!portOf(n)) return false;
+  return chunk.some(([x, y]) => coast && coast[y] && coast[y][x]);
+}
+
+function sailTo(n, port, dest) {
+  const from = pop[port.y][port.x] || 0;
+  let party = Math.round(from * (n.gov === "Dictatorship" ? 0.12 : 0.07));
+  party = Math.max(36, Math.min(from - 480, party));
+  if (party < 36) return false;
+  const drown = Math.round(party * Math.min(0.45, 0.1 + dest.d * 0.012));
+  const arrive = party - drown;
+  if (arrive < 24) return false;
+  pop[port.y][port.x] = from - party;
+  if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + 1.4;
+  const locals = pop[dest.y][dest.x] || 0;
+  const foe = dest.owner >= 0 ? byId(dest.owner) : null;
+  if (foe) {
+    const power = arrive * (0.75 + (n.sea || 0));
+    const defense = Math.max(180, locals) * (0.85 + (foe.sea || 0) * 0.45);
+    if (power < defense) {
+      chronicle(year, "Ships from " + n.name + " cannot land on " + foe.name + ".");
+      return true;
+    }
+  }
+  const flight = foe ? 0.45 : 0.22;
+  const stayed = Math.round(locals * (1 - flight));
+  pop[dest.y][dest.x] = Math.max(40, stayed + arrive);
+  if (belief && belief[dest.y] && belief[dest.y][dest.x] && belief[port.y][port.x]) pourFaith(dest.x, dest.y, belief[port.y][port.x], stayed, arrive);
+  claim(dest.x, dest.y, n.id);
+  n.grain = Math.max(0, (n.grain || 0) - 350);
+  chronicle(year, foe
+    ? "Ships from " + n.name + " take a shore from " + foe.name + "."
+    : "Ships from " + n.name + " make landfall. The people who left the port settle a shore they cannot walk to.");
+  if (foe) foe.stability = Math.max(4, (foe.stability || 30) - 4);
+  return true;
+}
+
+function considerVoyage(n) {
+  const range = seaRange(n);
+  if (!range || (n.hungry || 0) > 0.05 || n.pops < 8) return;
+  const chance = n.gov === "Oligarchy" ? 0.5 : n.gov === "Republic" ? 0.38 : n.gov === "Dictatorship" ? 0.2 : 0.16;
+  if (rnd() > chance) return;
+  const port = portOf(n);
+  if (!port) return;
+  const hits = landfalls(port.x, port.y, range, n.id);
+  let best = null, bestS = -1;
+  for (const h of hits) {
+    let s = 0;
+    if (h.owner < 0) s = 4.2 - h.d * 0.12;
+    else if (n.atWar.has(h.owner)) s = 3.4 - h.d * 0.08;
+    else continue;
+    if (river && river[h.y][h.x] >= 12) s += 1.4;
+    if (n.gov === "Theocracy" && belief && belief[h.y][h.x]) {
+      const share = belief[h.y][h.x][n.faith] || 0;
+      s += share > 0.4 ? 1.5 : -1.2;
+    }
+    const beside = neighbors(h.x, h.y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== n.id && !n.atWar.has(owner[ny][nx]));
+    if (beside && h.owner < 0) s -= 2.5;
+    s += rnd() * 0.4;
+    if (s > bestS) { bestS = s; best = h; }
+  }
+  if (best && bestS > 1.2) sailTo(n, port, best);
+}
+
 function considerCollapse(n) {
   if (!nations.includes(n) || !n.atWar.size || n.pops > 24 || n.stability > 24 || year - n.born < 30) return;
   const cells = cellsOf(n.id);
@@ -999,6 +1195,7 @@ function keepWhole() {
     const main = comps[0];
     for (let i = 1; i < comps.length; i++) {
       const chunk = comps[i];
+      if (seaSupplied(n, chunk)) continue;
       if (chunk.length <= 12) {
         const who = annex(chunk);
         if (who && chunk.length >= 4) chronicle(year, who.name + " occupies ground cut off from " + n.name + ".");

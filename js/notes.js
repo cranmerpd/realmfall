@@ -1,5 +1,13 @@
-const VERSION = "0.9";
+const VERSION = "0.10";
 const HISTORY = [
+  {
+    v: "0.10",
+    date: "9 Oct 2026",
+    items: [
+      "A republic votes. Merchants, the ports, the country, a cult, or a hard hand can keep it or replace it. Hunger, faith, and fear decide the weight.",
+      "A coast that has learned the water can send people across it. The crossing costs the port. The new shore is held only while the ships can still reach it."
+    ]
+  },
   {
     v: "0.9",
     date: "9 Oct 2026",

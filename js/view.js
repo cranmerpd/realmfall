@@ -175,7 +175,7 @@ function situation(n) {
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
-  if (n.gov === "Republic") return "A democratic republic. Prosperity is its legitimacy. A poor interior can leave.";
+  if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
   if (n.gov === "Oligarchy") return "An oligarchy. The ports pay for the state. The inland provinces do not share in it.";
   if (n.gov === "Theocracy") return "A theocracy. The cult is whatever the capital already believed. Neighbors change faith, not the state.";
   if (n.gov === "Dictatorship") return "A dictatorship. It fights harder while it is feared, and a long war eats that fear.";
@@ -258,6 +258,8 @@ function drawUI() {
         + row("Largest faith", faithName(focus.creed) + " " + Math.round((focus.creedShare || 0) * 100) + "%")
         + '<div class="kicker sub">STATE</div>'
         + row("Government", govLabel(focus.gov))
+        + (focus.gov === "Republic" ? row("Parties", partyLine(focus)) : "")
+        + row("Ships", seaWord(focus))
         + row("Legitimacy", Math.round(focus.legitimacy || 0))
         + row("River pacts", focus.pacts || 0)
         + row("Prosperity", fmt(focus.wealth))
