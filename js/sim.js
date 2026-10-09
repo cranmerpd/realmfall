@@ -778,21 +778,44 @@ function culture() {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND || !belief[y][x]) continue;
+      const souls = Math.max(160, (pop && pop[y][x]) || 400);
       const mix = [0, 0, 0];
-      const souls = pop && pop[y][x] ? pop[y][x] : 800;
       for (let i = 0; i < 3; i++) mix[i] = belief[y][x][i] * souls;
       let mass = souls;
       for (const [nx, ny] of neighbors(x, y)) {
         if (grid[ny][nx] !== LAND || !belief[ny][nx]) continue;
-        const touch = Math.sqrt((pop && pop[ny][nx]) || 800) * 0.05;
-        for (let i = 0; i < 3; i++) mix[i] += belief[ny][nx][i] * touch;
-        mass += touch;
+        const reach = Math.sqrt(Math.max(80, (pop && pop[ny][nx]) || 200)) * 0.11;
+        for (let i = 0; i < 3; i++) mix[i] += belief[ny][nx][i] * reach;
+        mass += reach;
       }
-      let shares = norm3(mix.map(v => v / mass));
-      next[y][x] = shares;
+      const id = owner[y][x];
+      const realm = id >= 0 ? byId(id) : null;
+      if (realm && realm.gov === "Theocracy") {
+        const d = realm.capital ? hypot(x, y, realm.capital) : 12;
+        const town = cities.some(c => c.x === x && c.y === y);
+        let pull = souls * (town ? 0.07 : 0.028) * (0.6 + (realm.legitimacy || 50) / 220);
+        if (d > 16) pull *= 0.4;
+        if ((belief[y][x][realm.faith] || 0) > 0.74) pull *= 0.25;
+        mix[realm.faith] += pull;
+        mass += pull;
+      }
+      const pulled = norm3(mix.map(v => v / mass));
+      next[y][x] = norm3([0, 1, 2].map(i => belief[y][x][i] * 0.84 + pulled[i] * 0.16));
     }
   }
   belief = next;
+}
+
+function borderCult(n, otherId) {
+  let people = 0, cult = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== otherId || !belief[y][x]) continue;
+    if (!neighbors(x, y).some(([nx, ny]) => owner[ny][nx] === n.id)) continue;
+    const souls = (pop[y] && pop[y][x]) || 0;
+    people += souls;
+    cult += souls * (belief[y][x][n.faith] || 0);
+  }
+  return people ? cult / people : 0;
 }
 
 function considerWar(n) {
@@ -835,9 +858,11 @@ function considerWar(n) {
     }
     if ((n.ore || 0) < 24 && (other.ore || 0) > 70 && border >= 6) reasons.push([9 + 4 * R.bully, "to take the ore"]);
     else if ((n.timber || 0) < 36 && (other.timber || 0) > 110 && border >= 6) reasons.push([8 + 3 * R.bully, "to take the timber"]);
-    const theirs = other.people ? ((other.believers && other.believers[n.faith]) || 0) / other.people : 1;
-    if (R.zeal && (n.cultShare || 0) > 0.6 && (n.homo || 0) > 0.55 && theirs < 0.22 && border >= 8) {
-      reasons.push([5, "where its cult has no hold"]);
+    if (n.gov === "Theocracy" && (n.cultShare || 0) > 0.4 && border >= 4) {
+      const edge = borderCult(n, other.id);
+      const abroad = other.people ? ((other.believers && other.believers[n.faith]) || 0) / other.people : 0;
+      if (edge < 0.38) reasons.push([18 + (0.38 - edge) * 20, "because the neighbor does not keep the cult"]);
+      else if (abroad > 0.16 && abroad < 0.8) reasons.push([15 + abroad * 12, "to bring the cult's people under one crown"]);
     }
     const leg = 0.62 + (n.legitimacy || 60) / 260;
     if (!reasons.length) {
@@ -923,6 +948,10 @@ function warPush(n) {
         if ((foe.legitimacy || 0) < 36) defense *= 0.74;
       }
       if (foe.gov === "Theocracy" && belief && belief[m.ty][m.tx]) defense *= 0.84 + belief[m.ty][m.tx][foe.faith] * 0.45;
+      if (n.gov === "Theocracy" && belief && belief[m.ty][m.tx]) {
+        const here = belief[m.ty][m.tx][n.faith] || 0;
+        if (here > 0.34) power *= 1.06 + here * 0.22;
+      }
       if (city && m.coast && rules(foe.gov).trade > 0.7) defense *= 1.12;
       if (m.reclaim) defense *= 0.7;
       if (power * (1 + m.friends * 0.05) > defense) {
@@ -975,6 +1004,8 @@ function considerPacts() {
       if (!riverPeace && !complement) continue;
       if ((borderCounts(a)[b.id] || 0) < 4) continue;
       if (a.gov === "Dictatorship" || b.gov === "Dictatorship") continue;
+      if (a.gov === "Theocracy" && (a.cultShare || 0) > 0.45 && a.creed !== b.creed) continue;
+      if (b.gov === "Theocracy" && (b.cultShare || 0) > 0.45 && b.creed !== a.creed) continue;
       const heat = ((a.grievance && a.grievance[b.id]) || 0) + ((b.grievance && b.grievance[a.id]) || 0);
       if (heat > 35) continue;
       const ap = Object.keys(a.pact).filter(id => a.pact[id] > year).length;

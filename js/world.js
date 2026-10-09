@@ -29,14 +29,17 @@ function topFaith(x, y) {
   return s[1] > s[0] ? (s[2] > s[1] ? 2 : 1) : (s[2] > s[0] ? 2 : 0);
 }
 function mixFaithColor(shares) {
-  let r = 0, g = 0, b = 0;
-  for (let i = 0; i < 3; i++) {
-    const n = parseInt(faithColor(i).slice(1), 16);
-    const w = shares[i] || 0;
-    r += ((n >> 16) & 255) * w;
-    g += ((n >> 8) & 255) * w;
-    b += (n & 255) * w;
-  }
+  let top = 0;
+  if ((shares[1] || 0) > (shares[top] || 0)) top = 1;
+  if ((shares[2] || 0) > (shares[top] || 0)) top = 2;
+  let second = top === 0 ? 1 : 0;
+  for (let i = 0; i < 3; i++) if (i !== top && (shares[i] || 0) > (shares[second] || 0)) second = i;
+  const n = parseInt(faithColor(top).slice(1), 16);
+  const m = parseInt(faithColor(second).slice(1), 16);
+  const w = Math.min(0.2, Math.max(0, (shares[second] || 0) - 0.22));
+  const r = ((n >> 16) & 255) * (1 - w) + ((m >> 16) & 255) * w;
+  const g = ((n >> 8) & 255) * (1 - w) + ((m >> 8) & 255) * w;
+  const b = (n & 255) * (1 - w) + (m & 255) * w;
   return "rgb(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ")";
 }
 
@@ -350,23 +353,41 @@ function seedFaith() {
   while (faithNames.length < 3 && pool.length) faithNames.push(pool.splice(ri(pool.length), 1)[0]);
   const spots = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
-  const seeds = [];
-  for (let i = 0; i < 3 && spots.length; i++) {
-    let best = spots[0], bestD = -1;
-    const tries = Math.min(80, spots.length);
-    for (let t = 0; t < tries; t++) {
-      const p = spots[ri(spots.length)];
-      let d = 999;
-      for (const s of seeds) d = Math.min(d, Math.hypot(p[0] - s[0], p[1] - s[1]));
-      if (!seeds.length) d = 50;
-      if (d > bestD) { bestD = d; best = p; }
+  const hearths = [];
+  for (let f = 0; f < 3; f++) {
+    for (let h = 0; h < 2 && spots.length; h++) {
+      let best = spots[0], bestD = -1;
+      for (let t = 0; t < Math.min(90, spots.length); t++) {
+        const p = spots[ri(spots.length)];
+        let d = hearths.length ? 999 : 40;
+        for (const s of hearths) {
+          let dx = Math.abs(p[0] - s[0]);
+          if (dx > COLS / 2) dx = COLS - dx;
+          d = Math.min(d, Math.hypot(dx, p[1] - s[1]));
+        }
+        if (d > bestD) { bestD = d; best = p; }
+      }
+      hearths.push([best[0], best[1], f]);
     }
-    seeds.push(best);
   }
   belief = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   for (const [x, y] of spots) {
-    const raw = norm3(seeds.map(s => 1 / Math.pow(Math.hypot(x - s[0], y - s[1]) + 14, 1.35)));
-    belief[y][x] = norm3(raw.map(v => v + 0.2));
+    let near = hearths[0], nd = 1e9, alt = hearths[1] || hearths[0], ad = 1e9;
+    for (const s of hearths) {
+      let dx = Math.abs(x - s[0]);
+      if (dx > COLS / 2) dx = COLS - dx;
+      const d = Math.hypot(dx, y - s[1]);
+      if (d < nd) { ad = nd; alt = near; nd = d; near = s; }
+      else if (d < ad) { ad = d; alt = s; }
+    }
+    const shares = [0.06, 0.06, 0.06];
+    const border = ad < nd * 1.28 + 2;
+    shares[near[2]] = border ? 0.56 : 0.8;
+    if (alt[2] !== near[2]) shares[alt[2]] = border ? 0.3 : 0.12;
+    else shares[(near[2] + 1) % 3] += border ? 0.16 : 0.06;
+    const jig = (hash2(x, y) - 0.5) * 0.05;
+    shares[near[2]] = Math.max(0.08, shares[near[2]] + jig);
+    belief[y][x] = norm3(shares);
   }
 }
 

@@ -223,6 +223,7 @@ function render() {
     }
   }
   ctx.stroke();
+  drawFaithEdges(cw, ch);
   drawGoods(cw, ch);
   drawUnits(cw, ch);
   ctx.textAlign = "center";
@@ -249,6 +250,42 @@ function render() {
     const seat = cities.find(c => c.id === n.seat);
     if (!seat || !owner[seat.y] || owner[seat.y][seat.x] !== n.id) continue;
     drawPlace(seat, n.color, cw, ch);
+  }
+}
+
+function drawFaithEdges(cw, ch) {
+  if (mapMode !== "faith" || !belief) return;
+  ctx.beginPath();
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND || !belief[y][x]) continue;
+    const top = topFaith(x, y);
+    const east = (x + 1) % COLS;
+    if (grid[y][east] === LAND && belief[y][east] && topFaith(east, y) !== top) {
+      ctx.moveTo((x + 1) * cw, y * ch);
+      ctx.lineTo((x + 1) * cw, (y + 1) * ch);
+    }
+    if (y < ROWS - 1 && grid[y + 1][x] === LAND && belief[y + 1][x] && topFaith(x, y + 1) !== top) {
+      ctx.moveTo(x * cw, (y + 1) * ch);
+      ctx.lineTo((x + 1) * cw, (y + 1) * ch);
+    }
+  }
+  ctx.strokeStyle = "rgba(6,8,12,0.72)";
+  ctx.lineWidth = 1.25;
+  ctx.stroke();
+  if (!faithNames) return;
+  ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(8,10,14,0.78)";
+  ctx.fillRect(8, canvas.height - 32, Math.min(canvas.width - 16, 460), 22);
+  let lx = 16;
+  for (let i = 0; i < faithNames.length; i++) {
+    ctx.fillStyle = faithColor(i);
+    ctx.fillRect(lx, canvas.height - 25, 8, 8);
+    ctx.fillStyle = "#f4f7fc";
+    ctx.fillText(faithNames[i], lx + 12, canvas.height - 21);
+    const w = typeof ctx.measureText === "function" ? ctx.measureText(faithNames[i]).width : faithNames[i].length * 6.4;
+    lx += 12 + w + 18;
   }
 }
 
@@ -395,7 +432,11 @@ function realmCoin(n) {
 }
 
 function realmRule(n) {
+  const cult = n.gov === "Theocracy"
+    ? row("Cult", faithName(n.faith) + " · " + Math.round((n.cultShare || 0) * 100) + "%")
+    : "";
   return row("Government", govLabel(n.gov))
+    + cult
     + row("Legitimacy", Math.round(n.legitimacy || 0))
     + meter(n.legitimacy || 0)
     + row("Stability", Math.round(n.stability || 0))
@@ -428,7 +469,7 @@ function situation(n) {
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
   if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
   if (n.gov === "Oligarchy") return "An oligarchy. The ports pay for the state. The inland provinces do not share in it.";
-  if (n.gov === "Theocracy") return "A theocracy. The cult is whatever the capital already believed. Neighbors change faith, not the state.";
+  if (n.gov === "Theocracy") return "A theocracy. It preaches the capital's cult inside its own borders, and it will fight a neighbor who does not keep it. Conquest does not convert the people.";
   if (n.gov === "Dictatorship") return "A dictatorship. It fights harder while it is feared, and a long war eats that fear.";
   return "A monarchy. Distance is what it cannot hold. Faith is not its business.";
 }

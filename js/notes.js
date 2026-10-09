@@ -1,5 +1,14 @@
-const VERSION = "0.19";
+const VERSION = "0.20";
 const HISTORY = [
+  {
+    v: "0.20",
+    date: "9 Oct 2026",
+    items: [
+      "Faith is painted province by province. A cell takes the color of its majority, and a line is drawn where that majority changes.",
+      "People are influenced by the people next to them. A faith crosses a border slowly and does not wipe the old one out.",
+      "A theocracy preaches only inside its own land, stronger in its towns. It will not make peace with another cult, and it goes to war when a neighbor does not keep the faith or holds the cult's people."
+    ]
+  },
   {
     v: "0.19",
     date: "9 Oct 2026",
