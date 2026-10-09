@@ -164,12 +164,14 @@ function layContinents() {
   canals = [];
   elev = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   const count = rnd() < 0.45 ? 3 : 2;
+  const bands = count === 2 ? [0.28, 0.72] : [0.24, 0.5, 0.76];
   const centers = [];
   for (let i = 0; i < count; i++) {
+    const y = Math.round(bands[i] * (ROWS - 1) + (rnd() - 0.5) * 6);
     centers.push({
       x: Math.floor((i + 0.28 + rnd() * 0.44) * COLS / count) % COLS,
-      y: 16 + ri(Math.max(8, ROWS - 32)),
-      r: 15 + ri(11)
+      y: Math.max(12, Math.min(ROWS - 13, y)),
+      r: 14 + ri(9)
     });
   }
   const pole = 5;
@@ -338,7 +340,7 @@ function traceRivers() {
 function pickGov(x, y) {
   const shore = coast && coast[y] && coast[y][x];
   const r = rnd();
-  if (r < 0.05) return "Theocracy";
+  if (r < 0.05 && faithNames && faithNames.length) return "Theocracy";
   if (r < 0.16) return "Dictatorship";
   if (shore && r < 0.34) return "Oligarchy";
   if (r < 0.62) return "Republic";
@@ -347,64 +349,20 @@ function pickGov(x, y) {
 }
 
 function seedFaith() {
-  const pool = FAITH_POOL.slice();
   faithNames = [];
-  while (faithNames.length < 3 && pool.length) faithNames.push(pool.splice(ri(pool.length), 1)[0]);
-  const spots = [];
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
-  const hearths = [];
-  for (let f = 0; f < 3; f++) {
-    for (let h = 0; h < 2 && spots.length; h++) {
-      let best = spots[0], bestD = -1;
-      for (let t = 0; t < Math.min(90, spots.length); t++) {
-        const p = spots[ri(spots.length)];
-        let d = hearths.length ? 999 : 40;
-        for (const s of hearths) {
-          let dx = Math.abs(p[0] - s[0]);
-          if (dx > COLS / 2) dx = COLS - dx;
-          d = Math.min(d, Math.hypot(dx, p[1] - s[1]));
-        }
-        if (d > bestD) { bestD = d; best = p; }
-      }
-      hearths.push([best[0], best[1], f]);
-    }
-  }
   belief = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
-  for (const [x, y] of spots) {
-    let near = hearths[0], nd = 1e9, alt = hearths[1] || hearths[0], ad = 1e9;
-    for (const s of hearths) {
-      let dx = Math.abs(x - s[0]);
-      if (dx > COLS / 2) dx = COLS - dx;
-      const d = Math.hypot(dx, y - s[1]);
-      if (d < nd) { ad = nd; alt = near; nd = d; near = s; }
-      else if (d < ad) { ad = d; alt = s; }
-    }
-    const shares = [0.06, 0.06, 0.06];
-    const border = ad < nd * 1.28 + 2;
-    shares[near[2]] = border ? 0.56 : 0.8;
-    if (alt[2] !== near[2]) shares[alt[2]] = border ? 0.3 : 0.12;
-    else shares[(near[2] + 1) % 3] += border ? 0.16 : 0.06;
-    const jig = (hash2(x, y) - 0.5) * 0.05;
-    shares[near[2]] = Math.max(0.08, shares[near[2]] + jig);
-    belief[y][x] = norm3(shares);
-  }
 }
 
 function placeClimate() {
   cold = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-  let minY = ROWS, maxY = 0;
+  const mid = (ROWS - 1) / 2;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND) continue;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  const span = Math.max(1, maxY - minY);
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    if (grid[y][x] !== LAND) continue;
-    const north = (maxY - y) / span;
+    const lat = Math.abs(y - mid) / mid;
     const e = (elev && elev[y][x]) || 0;
-    let c = north * 0.78 + Math.max(0, e - 0.32) * 0.7;
-    if (coast && coast[y][x] && e < 0.5) c -= 0.14;
+    let c = Math.pow(lat, 1.35) * 1.05 + Math.max(0, e - 0.34) * 0.9;
+    if (e > 0.6) c = Math.max(c, 0.52 + (e - 0.6) * 1.1);
+    if (coast && coast[y][x] && e < 0.48) c -= 0.12;
     cold[y][x] = Math.max(0, Math.min(1, c));
   }
 }
