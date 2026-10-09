@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23 — 9 Oct 2026
+
+- A war is fought in spring, summer, and autumn. Winter the army holds.
+- A realm still takes the same one or two provinces in a year. The cost of the campaign is still paid once.
+
 ## 0.22 — 9 Oct 2026
 
 - The clock is Spring, Summer, Autumn, Winter. The same work still happens once a year, in that order.

@@ -193,6 +193,29 @@ function recount() {
   nations = nations.filter(n => n.pops > 0);
 }
 
+function campaign() {
+  if (season === 3) return;
+  for (const n of nations.slice()) {
+    if (!nations.includes(n) || !n.pops) continue;
+    if (!n.atWar.size) {
+      if (season === 0) considerWar(n);
+      continue;
+    }
+    const foe = byId([...n.atWar][0]);
+    if (!foe) continue;
+    if (season === 0) {
+      const cost = 16 + unitCount(n.id, "host") * 8;
+      if ((n.treasury || 0) >= cost) n.treasury -= cost;
+      else n.treasury = 0;
+      n.grabsLeft = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
+    }
+    if ((n.grabsLeft || 0) > 0) {
+      warPush(n);
+      n.grabsLeft--;
+    }
+  }
+}
+
 function step() {
   if (season === 0) {
     year++;
@@ -213,11 +236,7 @@ function step() {
       if (!nations.includes(n) || n.pops === 0) continue;
       settleCapital(n);
       measure(n);
-      if (n.atWar.size) warPush(n);
-      else {
-        grow(n);
-        considerWar(n);
-      }
+      if (!n.atWar.size) grow(n);
     }
     for (const n of nations.slice()) {
       if (!nations.includes(n) || !n.pops) continue;
@@ -237,8 +256,9 @@ function step() {
     for (const n of nations) holdSeat(n);
     recount();
     reindex();
-    moveUnits();
   }
+  if (season !== 3) campaign();
+  if (season === 1) moveUnits();
   season = (season + 1) % 4;
   paintClock();
 }
@@ -911,11 +931,8 @@ function splitOff(id, x, y) {
 function warPush(n) {
   const foeId = [...n.atWar][0];
   const foe = byId(foeId);
-  if (!foe) { n.atWar.clear(); return; }
-  const campaign = 16 + unitCount(n.id, "host") * 8;
-  if ((n.treasury || 0) >= campaign) n.treasury -= campaign;
-  else n.treasury = 0;
-  const grabs = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
+  if (!foe) { n.atWar.clear(); return false; }
+  const grabs = 1;
   for (let g = 0; g < grabs; g++) {
     const cands = [];
     const seen = new Set();
@@ -931,7 +948,7 @@ function warPush(n) {
         cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital), reclaim: prev[ty][tx] === n.id ? 1 : 0, coast: coastCell ? 1 : 0 });
       }
     }
-    if (!cands.length) return;
+    if (!cands.length) return false;
     const R = rules(n.gov);
     for (const m of cands) {
       const port = m.coast && (cities.some(c => c.x === m.tx && c.y === m.ty) || (river && river[m.ty][m.tx] > 11));
@@ -989,8 +1006,9 @@ function warPush(n) {
       moved = true;
       break;
     }
-    if (!moved) return;
+    if (!moved) return false;
   }
+  return true;
 }
 
 function sharesRiver(a, b) {

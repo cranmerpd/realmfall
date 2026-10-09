@@ -1,5 +1,13 @@
-const VERSION = "0.22";
+const VERSION = "0.23";
 const HISTORY = [
+  {
+    v: "0.23",
+    date: "9 Oct 2026",
+    items: [
+      "A war is fought in spring, summer, and autumn. Winter the army holds.",
+      "A realm still takes the same one or two provinces in a year. The cost of the campaign is still paid once."
+    ]
+  },
   {
     v: "0.22",
     date: "9 Oct 2026",
