@@ -432,5 +432,13 @@ function placeResources() {
     if (e > 0.52 && blob > 0.52 && fine > 0.38) resource[y][x] = 2;
     else if (e > 0.26 && e < 0.6 && !(coast && coast[y][x]) && blob > 0.58 && fine > 0.42) resource[y][x] = 1;
   }
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND || resource[y][x]) continue;
+    const e = elev[y][x] || 0;
+    const blob = hash2((x >> 3) + 3, y >> 3);
+    const fine = hash2(x + 41, y + 13);
+    if (e < 0.38 && coast && coast[y][x] && blob > 0.8 && fine > 0.74) resource[y][x] = 3;
+    else if (e > 0.5 && e < 0.68 && blob > 0.91 && fine > 0.8) resource[y][x] = 4;
+  }
 }
 

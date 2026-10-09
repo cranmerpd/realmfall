@@ -49,17 +49,19 @@ function generate() {
   drawUI();
 }
 
-function found(x, y, name, color, why, gov, faithId) {
+function found(x, y, name, color, why, gov, faithId, parent) {
   const id = nextId++;
   const f = faithId == null ? topFaith(x, y) : faithId;
   const g = gov || pickGov(x, y);
+  const age = parent ? (parent.age || 0) : knowledgeFloor(x, y);
   const n = {
     id, name, color, born: year || 1000, stability: 70, legitimacy: 68, pops: 1,
     capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
     faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {},
     sea: coast && coast[y] && coast[y][x] ? 0.14 : 0,
-    treasury: 220, timber: 30, ore: 12, taxTake: 0, spent: 0, lastTrade: "",
+    treasury: 220, timber: age >= 1 ? 40 : 0, ore: age >= 2 ? 16 : 0, oil: age >= 3 ? 8 : 0, silicon: age >= 4 ? 4 : 0,
+    age, learn: 0, taxTake: 0, spent: 0, lastTrade: "",
     nextVote: g === "Republic" ? (year || 1000) + 28 : 0
   };
   nations.push(n);
@@ -69,6 +71,7 @@ function found(x, y, name, color, why, gov, faithId) {
   if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
   const crown = name + " is founded as " + govArticle(g) + (g === "Theocracy" ? ". The cult is " + faithName(f) + ", which the capital's people already follow." : ".");
   chronicle(year || 1000, why || crown);
+  if (age >= 1) chronicle(year || 1000, n.name + " already knows the " + AGES[age].toLowerCase() + " arts. Common knowledge does not start over.");
   return n;
 }
 
@@ -155,6 +158,97 @@ function declareWar(n, foe, why) {
   return true;
 }
 
+function knowledgeFloor(x, y) {
+  let best = 0;
+  for (const n of nations) {
+    if (!n.capital) continue;
+    if (hypot(x, y, n.capital) > 24) continue;
+    best = Math.max(best, n.age || 0);
+  }
+  return Math.max(0, best - 2);
+}
+
+function holdsKind(n, kind) {
+  if (!resource) return false;
+  for (const [x, y] of cellsOf(n.id)) if (resource[y][x] === kind) return true;
+  return false;
+}
+
+function study(n) {
+  const age = n.age || 0;
+  if (age >= 4) return;
+  const next = age + 1;
+  const kind = [0, 1, 2, 3, 4][next];
+  let taught = 0;
+  for (const other of nations) {
+    if (other.id === n.id || (other.age || 0) < next || !other.capital || !n.capital) continue;
+    const beside = borderCounts(n)[other.id] > 0 || hypot(n.capital.x, n.capital.y, other.capital) < 26;
+    if (beside) taught = Math.max(taught, other.age || 0);
+  }
+  let traded = false;
+  if (n.pact) for (const id of Object.keys(n.pact)) {
+    if (n.pact[id] <= year) continue;
+    const other = byId(+id);
+    if (other && holdsKind(other, kind)) traded = true;
+  }
+  const has = holdsKind(n, kind);
+  if (!has && !traded && taught < next) return;
+  let gain = 2;
+  if (has) gain += 7;
+  if (traded) gain += 4;
+  if (taught >= next) gain += 5 + Math.min(8, (taught - age) * 2);
+  if ((n.hungry || 0) > 0.08) gain *= 0.45;
+  if (n.atWar.size) gain *= 0.65;
+  n.learn = (n.learn || 0) + gain;
+  if (n.learn < [0, 70, 100, 140, 190][next]) return;
+  n.age = next;
+  n.learn = 0;
+  const line = [
+    "",
+    "learns to cut timber. Slow ships and barges can now be built.",
+    "learns to smelt ore. Heavier arms, and hulls that make better way.",
+    "learns to draw oil. The ships move under power.",
+    "learns to work silicon. A wing can fly, and a missile can be sent."
+  ][next];
+  chronicle(year, n.name + " " + line);
+}
+
+function skirmish(n) {
+  const borders = borderCounts(n);
+  let foe = null, heat = 0, fid = -1;
+  for (const idStr of Object.keys(borders)) {
+    const id = +idStr;
+    if ((borders[id] || 0) < 4) continue;
+    const other = byId(id);
+    if (!other || other.atWar.size || atPeace(n, id)) continue;
+    const g = (n.grievance && n.grievance[id]) || 0;
+    if (g >= 22 && g > heat) { heat = g; foe = other; fid = id; }
+  }
+  if (!foe) return;
+  let cell = null, theirs = null;
+  for (let y = 0; y < ROWS && !cell; y++) for (let x = 0; x < COLS; x++) {
+    if (owner[y][x] !== n.id) continue;
+    const hit = neighbors(x, y).find(([nx, ny]) => owner[ny][nx] === fid);
+    if (hit) { cell = [x, y]; theirs = hit; }
+  }
+  if (!cell) return;
+  const c = coldAt(cell[0], cell[1]);
+  const bitter = season === 3 && c > 0.42;
+  const loss = bitter ? 0.05 : 0.022;
+  pop[cell[1]][cell[0]] = Math.max(120, Math.round((pop[cell[1]][cell[0]] || 0) * (1 - loss)));
+  if (theirs) pop[theirs[1]][theirs[0]] = Math.max(120, Math.round((pop[theirs[1]][theirs[0]] || 0) * (1 - loss)));
+  if ((foe.grain || 0) > 240) {
+    const take = Math.min(360, (foe.grain || 0) * 0.06);
+    foe.grain -= take;
+    n.grain = (n.grain || 0) + take * 0.4;
+  }
+  if (!n.grievance) n.grievance = {};
+  n.grievance[fid] = Math.min(96, heat + (bitter ? 7 : 3));
+  chronicle(year, bitter
+    ? "A winter skirmish on the border of " + n.name + " and " + foe.name + ". The cold takes more than the fighting."
+    : "A skirmish on the border of " + n.name + " and " + foe.name + ".");
+}
+
 function cellsOf(id) {
   const cells = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (owner[y][x] === id) cells.push([x, y]);
@@ -235,7 +329,10 @@ function campaign() {
   for (const n of nations.slice()) {
     if (!nations.includes(n) || !n.pops) continue;
     if (!n.atWar.size) {
-      if ((n.id + year) % 4 === season) considerWar(n);
+      if ((n.id + year) % 4 === season) {
+        skirmish(n);
+        considerWar(n);
+      }
       continue;
     }
     const foe = byId([...n.atWar][0]);
@@ -278,6 +375,7 @@ function step() {
       settleCapital(n);
       measure(n);
       if (!n.atWar.size) grow(n);
+      study(n);
     }
     for (const n of nations.slice()) {
       if (!nations.includes(n) || !n.pops) continue;
@@ -513,7 +611,7 @@ function taxRate(n) {
 }
 
 function extractLevy() {
-  for (const n of nations) { n.cutTimber = 0; n.dugOre = 0; n.taxTake = 0; }
+  for (const n of nations) { n.cutTimber = 0; n.dugOre = 0; n.drawnOil = 0; n.cutSilicon = 0; n.taxTake = 0; }
   if (resource) {
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       const kind = resource[y][x];
@@ -529,15 +627,19 @@ function extractLevy() {
       const town = cities.some(c => c.x === x && c.y === y || (owner[c.y] && owner[c.y][c.x] === n.id && Math.hypot(c.x - x, c.y - y) <= 3));
       work *= onWater || cities.some(c => c.x === x && c.y === y) ? 1 : town ? 0.7 : 0.4;
       if (n.gov === "Theocracy" && belief && belief[y][x] && (belief[y][x][n.faith] || 0) < 0.4) work *= 0.45;
-      if (kind === 1) { const cut = 7 * work; n.timber = (n.timber || 0) + cut; n.cutTimber += cut; }
-      else { const dug = 4.5 * work; n.ore = (n.ore || 0) + dug; n.dugOre += dug; }
+      if (kind === 1 && (n.age || 0) >= 1) { const cut = 7 * work; n.timber = (n.timber || 0) + cut; n.cutTimber += cut; }
+      else if (kind === 2 && (n.age || 0) >= 2) { const dug = 4.5 * work; n.ore = (n.ore || 0) + dug; n.dugOre += dug; }
+      else if (kind === 3 && (n.age || 0) >= 3) { const drawn = 3.2 * work; n.oil = (n.oil || 0) + drawn; n.drawnOil = (n.drawnOil || 0) + drawn; }
+      else if (kind === 4 && (n.age || 0) >= 4) { const cut = 1.4 * work; n.silicon = (n.silicon || 0) + cut; n.cutSilicon = (n.cutSilicon || 0) + cut; }
     }
   }
   for (const n of nations) {
     n.timber = Math.min(5000, n.timber || 0);
     n.ore = Math.min(3500, n.ore || 0);
+    n.oil = Math.min(2000, n.oil || 0);
+    n.silicon = Math.min(600, n.silicon || 0);
     const duty = (n.grain || 0) / (n.gov === "Oligarchy" || n.gov === "Republic" ? 50 : 95);
-    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + duty;
+    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + (n.drawnOil || 0) * 4 + (n.cutSilicon || 0) * 8 + duty;
     n.taxTake = Math.round(base * taxRate(n));
     n.treasury = Math.min(12000, (n.treasury || 0) + n.taxTake);
     if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + ((n.hungry || 0) > 0.06 ? 0.9 : 0.15);
@@ -1020,6 +1122,12 @@ function warPush(n) {
       }
       if (city && m.coast && rules(foe.gov).trade > 0.7) defense *= 1.12;
       if (m.reclaim) defense *= 0.7;
+      if ((n.age || 0) >= 4 && (n.silicon || 0) >= 5 && n.missileYear !== year) {
+        power *= 1.32;
+        n.silicon -= 5;
+        n.missileYear = year;
+        chronicle(year, n.name + " sends a missile into " + foe.name + ".");
+      }
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
         for (const [px, py] of pocket) claim(px, py, n.id);
@@ -1342,7 +1450,8 @@ function downstreamRun(x, y, ownerId) {
 }
 
 function launchBarge(x, y, ownerId, load) {
-  if (!units || load < 200) return 0;
+  const ownerNation = byId(ownerId);
+  if (!units || load < 200 || !ownerNation || (ownerNation.age || 0) < 1) return 0;
   const sys = riverSys && riverSys[y][x];
   if (units.some(u => u.kind === "barge" && u.owner === ownerId && sys && riverSys[u.y] && riverSys[u.y][u.x] === sys)) return 0;
   const dest = downstreamRun(x, y, ownerId);
@@ -1351,21 +1460,65 @@ function launchBarge(x, y, ownerId, load) {
   return load;
 }
 
+function armOf(n) {
+  const age = n.age || 0;
+  if (age >= 3 && (n.oil || 0) >= 4 && (n.ore || 0) >= 4) return "rifles";
+  if (age >= 2 && (n.ore || 0) >= 6) return "arms";
+  if (age >= 1 && (n.timber || 0) >= 4) return "company";
+  return "levy";
+}
+function armWeight(role) {
+  if (role === "rifles") return 1.55;
+  if (role === "arms") return 1.28;
+  if (role === "company") return 1.05;
+  return 0.82;
+}
+function armWord(role) {
+  if (role === "rifles") return "Rifles";
+  if (role === "arms") return "Men-at-arms";
+  if (role === "company") return "Company";
+  if (role === "wing") return "Wing";
+  return "Levy";
+}
+function hullOf(n) {
+  const age = n.age || 0;
+  if (age >= 3) return "steam";
+  if (age >= 2) return "carrack";
+  return "sail";
+}
+function hullSteps(u) {
+  if (u.hull === "steam") return 3;
+  if (u.hull === "carrack") return 2;
+  return 1;
+}
+function hullWord(n) {
+  const age = n.age || 0;
+  if (age >= 3) return "Steam";
+  if (age >= 2) return "Carrack";
+  if (age >= 1) return "Slow sail";
+  return "None";
+}
+
 function hostFactor(n, x, y) {
   if (!units || !n) return 0.7;
   let best = 0;
   for (const u of units) {
+    if (u.kind === "air" && u.owner === n.id) {
+      const d = Math.hypot(u.x - x, u.y - y);
+      if (d <= 8 && best < 1.4) best = 1.4;
+      continue;
+    }
     if (u.kind !== "host" || u.owner !== n.id) continue;
     const d = Math.hypot(u.x - x, u.y - y);
     if (d > 4) continue;
-    const strength = (0.72 + Math.min(0.5, (u.men || 200) / 1400)) * (u.fed == null || u.fed > 0.7 ? 1 : 0.75) * (u.armed == null ? 1 : u.armed);
+    const strength = (0.72 + Math.min(0.5, (u.men || 200) / 1400)) * (u.fed == null || u.fed > 0.7 ? 1 : 0.75) * armWeight(u.role);
     if (strength > best) best = strength;
   }
   return best > 0 ? 0.55 + best : 0.62;
 }
 
 function raiseHost(n) {
-  if ((n.treasury || 0) < 50) {
+  if ((n.treasury || 0) < 36) {
     if ((year + n.id) % 10 === 0) chronicle(year, n.name + " cannot raise an army. The treasury will not bear it.");
     return false;
   }
@@ -1382,14 +1535,24 @@ function raiseHost(n) {
     if (s > bestS) { bestS = s; best = [x, y, p]; }
   }
   if (!best) return false;
-  const men = Math.min(700, Math.round(best[2] * 0.12));
+  const role = armOf(n);
+  const men = Math.min(role === "levy" ? 520 : 700, Math.round(best[2] * 0.12));
   if (men < 70) return false;
-  const armed = (n.ore || 0) >= 8 ? 1 : 0.82;
-  if (armed === 1) n.ore -= 8;
-  if ((n.timber || 0) >= 4) n.timber -= 4;
-  n.treasury -= 50;
+  if (role === "rifles") {
+    if ((n.treasury || 0) < 70) return false;
+    n.oil -= 4; n.ore -= 4; n.treasury -= 70;
+  } else if (role === "arms") {
+    if ((n.treasury || 0) < 60) return false;
+    n.ore -= 6; if ((n.timber || 0) >= 3) n.timber -= 3; n.treasury -= 60;
+  } else if (role === "company") {
+    if ((n.treasury || 0) < 50) return false;
+    n.timber -= 4; n.treasury -= 50;
+  } else {
+    if ((n.treasury || 0) < 36) return false;
+    n.treasury -= 36;
+  }
   pop[best[1]][best[0]] -= men;
-  units.push({ id: nextUnit++, kind: "host", owner: n.id, x: best[0], y: best[1], men, fed: 1, cargo: 0, armed, paid: true });
+  units.push({ id: nextUnit++, kind: "host", owner: n.id, x: best[0], y: best[1], men, fed: 1, cargo: 0, role, paid: true });
   return true;
 }
 
@@ -1566,7 +1729,7 @@ function landCargo(u) {
 }
 
 function ensureCogs(n) {
-  if ((n.sea || 0) < 0.16 || !(n.coasts || 0) || unitCount(n.id, "cog")) return;
+  if ((n.age || 0) < 1 || (n.sea || 0) < 0.16 || !(n.coasts || 0) || unitCount(n.id, "cog")) return;
   const home = portOf(n);
   if (!home) return;
   let dest = null;
@@ -1596,7 +1759,7 @@ function ensureCogs(n) {
     else n.ore = (n.ore || 0) + offer.cargo;
     return;
   }
-  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: offer.cargo, good: offer.good, men: 0, dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
+  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: offer.cargo, good: offer.good, men: 0, hull: hullOf(n), dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
   chronicle(year, "A merchant ship of " + n.name + " sails for " + dest.name + " with " + offer.good + ".");
 }
 
@@ -1608,7 +1771,7 @@ function stepCog(u) {
     if (!other || n.atWar.has(other.id) || !(n.pact && n.pact[other.id] > year)) return false;
   }
   track(u);
-  for (let s = 0; s < 3; s++) {
+  for (let s = 0; s < hullSteps(u); s++) {
     const next = u.pi + u.dir;
     if (next >= u.path.length) {
       landCargo(u);
@@ -1698,6 +1861,7 @@ function orderShore(cells, x, y) {
 }
 
 function ensureWarships(n) {
+  if ((n.age || 0) < 1) return;
   const cap = seaRange(n) >= 22 ? 2 : 1;
   if ((n.sea || 0) < 0.22 || unitCount(n.id, "warship") >= cap) return;
   if (!n.atWar.size && (n.sea || 0) < 0.5) return;
@@ -1707,9 +1871,10 @@ function ensureWarships(n) {
   const spot = shore[Math.min(shore.length - 1, unitCount(n.id, "warship") * 4)];
   n.timber -= 14;
   n.treasury -= 40;
-  units.push({ id: nextUnit++, kind: "warship", owner: n.id, x: spot[0], y: spot[1], men: 0, cargo: 0, dir: 1, pi: 0, pts: [[spot[0], spot[1]]] });
+  const hull = hullOf(n);
+  units.push({ id: nextUnit++, kind: "warship", owner: n.id, x: spot[0], y: spot[1], men: 0, cargo: 0, dir: 1, pi: 0, hull, pts: [[spot[0], spot[1]]] });
   const home = portOf(n);
-  chronicle(year, n.name + " puts a warship off " + (home ? home.name : "its coast") + ".");
+  chronicle(year, n.name + " puts " + (hull === "steam" ? "a steam warship" : hull === "carrack" ? "a carrack" : "a slow warship") + " off " + (home ? home.name : "its coast") + ".");
 }
 
 function enemyPort(n) {
@@ -1762,7 +1927,7 @@ function stepWarship(u) {
       return true;
     }
     track(u);
-    for (let s = 0; s < 3 && u.pi + 1 < u.path.length; s++) {
+    for (let s = 0; s < hullSteps(u) && u.pi + 1 < u.path.length; s++) {
       const step = u.path[u.pi + 1];
       if (!neighbors(u.x, u.y).some(([a, b]) => a === step[0] && b === step[1])) break;
       u.pi += 1;
@@ -1862,6 +2027,33 @@ function payRealm(n) {
   }
 }
 
+function ensureAir(n) {
+  if ((n.age || 0) < 4 || (n.silicon || 0) < 8 || !n.atWar.size || !n.capital || unitCount(n.id, "air")) return;
+  n.silicon -= 8;
+  units.push({ id: nextUnit++, kind: "air", owner: n.id, role: "wing", x: n.capital.x, y: n.capital.y, men: 30, pts: [[n.capital.x, n.capital.y]] });
+  chronicle(year, n.name + " puts a wing in the air.");
+}
+
+function flyWing(u) {
+  const n = byId(u.owner);
+  if (!n || !n.atWar.size || !n.capital) return;
+  const foe = byId([...n.atWar][0]);
+  if (!foe || !foe.capital) return;
+  track(u);
+  for (let s = 0; s < 3; s++) {
+    let best = null, bestD = hypot(u.x, u.y, foe.capital);
+    for (const [nx, ny] of neighbors(u.x, u.y)) {
+      if (grid[ny][nx] !== LAND) continue;
+      const d = hypot(nx, ny, foe.capital);
+      if (d < bestD) { bestD = d; best = [nx, ny]; }
+    }
+    if (!best) break;
+    u.x = best[0];
+    u.y = best[1];
+    moved(u);
+  }
+}
+
 function moveUnits() {
   if (!units) units = [];
   units = units.filter(u => {
@@ -1875,6 +2067,7 @@ function moveUnits() {
     else raiseHosts(n);
     ensureCogs(n);
     ensureWarships(n);
+    ensureAir(n);
   }
   const keep = [];
   for (const u of units) {
@@ -1890,6 +2083,11 @@ function moveUnits() {
       }
       track(u);
       marchHost(u);
+      keep.push(u);
+    } else if (u.kind === "air") {
+      const n = byId(u.owner);
+      if (!n || !n.atWar.size) continue;
+      flyWing(u);
       keep.push(u);
     } else if (u.kind === "barge") {
       if (stepBarge(u)) keep.push(u);
@@ -1983,7 +2181,7 @@ function considerRevolt(n) {
     : n.gov === "Oligarchy" ? "is inland, and the oligarchy spends on the ports"
     : "is farther than the monarchy can govern";
   const babyGov = n.gov === "Republic" ? "Republic" : n.gov === "Dictatorship" ? "Dictatorship" : n.gov === "Theocracy" ? "Theocracy" : "Monarchy";
-  const baby = found(hx, hy, babyName, colors[ri(colors.length)], "A march of " + n.name + " " + why + ". " + babyName + " breaks away.", babyGov, topFaith(hx, hy));
+  const baby = found(hx, hy, babyName, colors[ri(colors.length)], "A march of " + n.name + " " + why + ". " + babyName + " breaks away.", babyGov, topFaith(hx, hy), n);
   for (const [x, y] of blob) claim(x, y, baby.id);
   baby.capital = { x: hx, y: hy };
   baby.quietUntil = year + 180;

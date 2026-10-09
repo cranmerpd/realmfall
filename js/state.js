@@ -8,6 +8,7 @@ const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8f
 const FAITH_POOL = ["Ashen Rite", "High Canon", "Old Grove", "Sun Creed", "Pale Choir", "Iron Psalm"];
 const FAITH_COLORS = ["#c4a574", "#7f97a8", "#7ea36d", "#c48b9a", "#d2c07a", "#8d7cc4"];
 const GOVS = ["Monarchy", "Republic", "Dictatorship", "Oligarchy", "Theocracy"];
+const AGES = ["Primitive", "Timber", "Metal", "Oil", "Silicon"];
 
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");

@@ -1,5 +1,15 @@
-const VERSION = "0.25";
+const VERSION = "0.26";
 const HISTORY = [
+  {
+    v: "0.26",
+    date: "9 Oct 2026",
+    items: [
+      "Every realm starts primitive. A levy can be raised at once. Timber, ore, oil, and silicon cannot be worked until that realm learns how.",
+      "Learning follows the land and the neighbors. Timber allows barges and slow ships. Ore allows heavier arms and faster hulls. Oil powers the ships. Silicon allows a wing and a missile.",
+      "A realm that breaks away keeps what its people already knew. A new realm beside a silicon power at least knows how to cut wood.",
+      "A skirmish is not a war. It spends blood and a little grain, and a winter skirmish spends more. A war is still the thing that takes provinces."
+    ]
+  },
   {
     v: "0.25",
     date: "9 Oct 2026",

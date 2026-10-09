@@ -116,9 +116,23 @@ function drawUnits(cw, ch) {
       ctx.fillStyle = n.color;
       ctx.strokeStyle = u.fed < 0.7 ? "rgba(244,247,252,0.35)" : "#f4f7fc";
       ctx.lineWidth = 1;
-      const s = Math.max(2.4, Math.min(cw, ch) * 0.18);
+      const s = Math.max(2.2, Math.min(cw, ch) * (u.role === "rifles" || u.role === "arms" ? 0.22 : 0.16));
       ctx.fillRect(-s, -s, s * 2, s * 2);
       ctx.strokeRect(-s, -s, s * 2, s * 2);
+      ctx.restore();
+    } else if (u.kind === "air") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = n.color;
+      ctx.strokeStyle = "#f4f7fc";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(6, 3);
+      ctx.lineTo(-6, 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
       ctx.restore();
     } else if (u.kind === "barge") drawBoat(x, y, n.color, p.hdg, 0.62, null);
     else if (u.kind === "cog") drawBoat(x, y, n.color, p.hdg, 1, "cog");
@@ -323,25 +337,31 @@ function drawClimateKey() {
 
 function drawGoods(cw, ch) {
   if (mapMode !== "goods" || !resource) return;
+  const ink = { 1: "rgba(126,168,92,0.95)", 2: "rgba(196,150,88,0.96)", 3: "rgba(90,122,138,0.96)", 4: "rgba(198,186,232,0.96)" };
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const g = resource[y][x];
-    if (!g) continue;
-    const inset = g === 1 ? 0.18 : 0.3;
-    ctx.fillStyle = g === 1 ? "rgba(126,168,92,0.95)" : "rgba(196,150,88,0.96)";
+    if (!ink[g]) continue;
+    const inset = g === 1 ? 0.18 : 0.28;
+    ctx.fillStyle = ink[g];
     ctx.fillRect((x + inset) * cw, (y + inset) * ch, Math.max(1, cw * (1 - inset * 2)), Math.max(1, ch * (1 - inset * 2)));
   }
+  const items = [["#7ea85c", "Timber"], ["#c49658", "Ore"], ["#5a7a8a", "Oil"], ["#c6bae8", "Silicon"]];
   ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
+  let width = 16;
+  for (const [, name] of items) width += 28 + (typeof ctx.measureText === "function" ? ctx.measureText(name).width : name.length * 6.4);
   ctx.fillStyle = "rgba(8,10,14,0.72)";
-  ctx.fillRect(12, canvas.height - 36, 132, 22);
-  ctx.fillStyle = "#7ea85c";
-  ctx.fillRect(18, canvas.height - 29, 8, 8);
-  ctx.fillStyle = "#c49658";
-  ctx.fillRect(78, canvas.height - 29, 8, 8);
-  ctx.fillStyle = "#f4f7fc";
-  ctx.fillText("Timber", 30, canvas.height - 25);
-  ctx.fillText("Ore", 90, canvas.height - 25);
+  ctx.fillRect(8, canvas.height - 36, width, 22);
+  let lx = 16;
+  for (const [color, name] of items) {
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, canvas.height - 29, 8, 8);
+    ctx.fillStyle = "#f4f7fc";
+    ctx.fillText(name, lx + 12, canvas.height - 25);
+    const w = typeof ctx.measureText === "function" ? ctx.measureText(name).width : name.length * 6.4;
+    lx += 28 + w;
+  }
 }
 
 function fmt(n) {
@@ -457,8 +477,10 @@ function realmCoin(n) {
     + row("Tax", rate + "% · " + fmt(n.taxTake) + " this year")
     + row("Spent on arms", fmt(n.spent))
     + row("Prosperity", fmt(n.wealth))
-    + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : ""))
-    + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : ""))
+    + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : "") + ((n.age || 0) < 1 ? " · not yet worked" : ""))
+    + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet smelted" : ""))
+    + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : "") + ((n.age || 0) < 3 ? " · not yet drawn" : ""))
+    + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : "") + ((n.age || 0) < 4 ? " · not yet worked" : ""))
     + row("Grain at the ports", fmt(n.grain))
     + row("Last trade", n.lastTrade || "None")
     + '<p class="quiet-line">' + why + ' Timber and ore far from a river, a coast, or a town barely reach the treasury. A broke realm settles less, fights worse, and loses people to anywhere that can pay.</p>';
@@ -470,6 +492,7 @@ function realmRule(n) {
     : "";
   return row("Government", govLabel(n.gov))
     + cult
+    + row("Age", (AGES[n.age || 0] || "Primitive") + ((n.age || 0) < 4 ? " · learning " + AGES[(n.age || 0) + 1].toLowerCase() : ""))
     + row("Legitimacy", Math.round(n.legitimacy || 0))
     + meter(n.legitimacy || 0)
     + row("Stability", Math.round(n.stability || 0))
@@ -483,8 +506,9 @@ function realmRule(n) {
 function realmWater(n) {
   const hulls = unitCount(n.id, "warship") + unitCount(n.id, "cog") + unitCount(n.id, "barge");
   return row("Hulls on the map", hulls)
+    + row("Ships", hullWord(n))
     + row("Warships", unitCount(n.id, "warship"))
-    + row("Armies", unitCount(n.id, "host"))
+    + row("Armies", armyLine(n))
     + row("Seamanship", seaWord(n))
     + bargeLines(n)
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
@@ -492,6 +516,17 @@ function realmWater(n) {
     + '<p class="quiet-line">At peace a warship patrols this coast. In a war it sails for the enemy coast. A barge carries surplus grain. A merchant sells grain, timber, or ore, and is paid on arrival.</p>'
     + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
+}
+
+function armyLine(n) {
+  const roles = {};
+  for (const u of units || []) {
+    if (u.owner !== n.id || (u.kind !== "host" && u.kind !== "air")) continue;
+    const w = armWord(u.role);
+    roles[w] = (roles[w] || 0) + 1;
+  }
+  const bits = Object.keys(roles).map(r => r + " " + roles[r]);
+  return bits.length ? bits.join(", ") : "None";
 }
 
 function situation(n) {
@@ -614,7 +649,7 @@ canvas.addEventListener("mousemove", e => {
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
-        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : "")
+        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : resource && resource[y] && resource[y][x] === 3 ? "  ·  oil" : resource && resource[y] && resource[y][x] === 4 ? "  ·  silicon" : "")
         + "  ·  " + climateWord(x, y);
     } else label = "Unclaimed  ·  " + souls;
   }
@@ -624,9 +659,10 @@ canvas.addEventListener("mousemove", e => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
       if (u.kind === "barge") return "Barge of " + name + " · grain to " + (u.destName || "a city");
-      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.cargo > 0 ? (u.good || "grain") + " to " : "home from ") + (u.destName || "a port");
-      if (u.kind === "warship") return "Warship of " + name + (u.mission ? " · " + (u.mode === "war" ? "sailing to " : u.mode === "return" ? "returning to " : "") + u.mission : " · patrolling the coast");
-      return "Army of " + name + " · " + fmt(u.men);
+      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.hull === "steam" ? "steam · " : u.hull === "carrack" ? "carrack · " : "slow sail · ") + (u.cargo > 0 ? (u.good || "grain") + " to " : "home from ") + (u.destName || "a port");
+      if (u.kind === "warship") return (u.hull === "steam" ? "Steam warship" : u.hull === "carrack" ? "Carrack" : "Slow warship") + " of " + name + (u.mission ? " · " + (u.mode === "war" ? "sailing to " : u.mode === "return" ? "returning to " : "") + u.mission : " · patrolling the coast");
+      if (u.kind === "air") return "Wing of " + name;
+      return armWord(u.role) + " of " + name + " · " + fmt(u.men);
     }).join("  ·  ");
     label = grid[y] && grid[y][x] === LAND ? label + "  ·  " + bit : bit;
   }

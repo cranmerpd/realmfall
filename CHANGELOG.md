@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26 — 9 Oct 2026
+
+- Every realm starts primitive. A levy can be raised at once. Timber, ore, oil, and silicon cannot be worked until that realm learns how.
+- Learning follows the land and the neighbors. Timber allows barges and slow ships. Ore allows heavier arms and faster hulls. Oil powers the ships. Silicon allows a wing and a missile.
+- A realm that breaks away keeps what its people already knew. A new realm beside a silicon power at least knows how to cut wood.
+- A skirmish is not a war. It spends blood and a little grain, and a winter skirmish spends more. A war is still the thing that takes provinces.
+
 ## 0.25 — 9 Oct 2026
 
 - Climate is a map of its own, beside States, Faith, and Goods. Each province is shaded for the winter it actually has.
