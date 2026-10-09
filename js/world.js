@@ -51,7 +51,12 @@ function nameCity() {
   }
   return pick(prefixes) + pick(citySuffixes) + (nextCity || 1);
 }
-function hypot(x, y, c) { const dx = x - c.x, dy = y - c.y; return Math.sqrt(dx * dx + dy * dy); }
+function hypot(x, y, c) {
+  let dx = Math.abs(x - c.x);
+  if (dx > COLS / 2) dx = COLS - dx;
+  const dy = y - c.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
 function key(x, y) { return y * COLS + x; }
 
 function resize() {
@@ -62,9 +67,7 @@ function resize() {
 window.addEventListener("resize", resize);
 
 function neighbors(x, y) {
-  const n = [];
-  if (x > 0) n.push([x - 1, y]);
-  if (x < COLS - 1) n.push([x + 1, y]);
+  const n = [[(x + COLS - 1) % COLS, y], [(x + 1) % COLS, y]];
   if (y > 0) n.push([x, y - 1]);
   if (y < ROWS - 1) n.push([x, y + 1]);
   return n;
@@ -157,36 +160,54 @@ function fbm(x, y) {
 function layContinents() {
   canals = [];
   elev = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-  const centers = rnd() < 0.4
-    ? [{ x: 24 + ri(10), y: 22 + ri(8), r: 20 }, { x: 28 + ri(8), y: 56 + ri(6), r: 16 }, { x: 92 + ri(8), y: 38 + ri(12), r: 24 }]
-    : [{ x: 30 + ri(12), y: 38 + ri(10), r: 24 }, { x: 90 + ri(10), y: 36 + ri(14), r: 23 }];
+  const count = rnd() < 0.45 ? 3 : 2;
+  const centers = [];
+  for (let i = 0; i < count; i++) {
+    centers.push({
+      x: Math.floor((i + 0.28 + rnd() * 0.44) * COLS / count) % COLS,
+      y: 16 + ri(Math.max(8, ROWS - 32)),
+      r: 15 + ri(11)
+    });
+  }
+  const pole = 5;
   for (let y = 0; y < ROWS; y++) {
+    const lat = (y / (ROWS - 1) - 0.5) * 2;
     for (let x = 0; x < COLS; x++) {
+      const ang = (x / COLS) * Math.PI * 2;
+      const wx = Math.cos(ang) * 2.1;
+      const wy = Math.sin(ang) * 2.1;
       let dome = 0;
       for (const c of centers) {
-        const d = Math.hypot(x - c.x, y - c.y) / c.r;
+        let dx = Math.abs(x - c.x);
+        if (dx > COLS / 2) dx = COLS - dx;
+        const d = Math.hypot(dx, y - c.y) / c.r;
         dome = Math.max(dome, Math.max(0, 1 - d * d));
       }
-      const wx = fbm(x * 0.09, y * 0.09);
-      const wy = fbm(x * 0.09 + 30, y * 0.09 + 12);
-      const n = fbm((x + (wx - 0.5) * 22) * 0.065, (y + (wy - 0.5) * 22) * 0.065);
-      const ridge = 1 - Math.abs(fbm(x * 0.04 + 8, y * 0.04) - 0.5) * 2;
-      const h = dome * 0.5 + (n - 0.5) * 0.95 + (ridge - 0.5) * 0.28;
+      const warp = fbm(wx + y * 0.01, wy + 4);
+      const n = fbm(wx * 1.4 + (warp - 0.5) * 0.8, wy * 1.4 + y * 0.07);
+      const ridge = 1 - Math.abs(fbm(wx * 0.7 + 3, wy * 0.7 + y * 0.04) - 0.5) * 2;
+      const h = dome * 0.62 + (n - 0.5) * 0.85 + (ridge - 0.5) * 0.22 - lat * lat * 1.05;
       elev[y][x] = h;
-      grid[y][x] = h > 0.14 ? LAND : WATER;
+      grid[y][x] = y < pole || y >= ROWS - pole || h <= 0.12 ? WATER : LAND;
     }
   }
-  separateCenters(centers);
   for (let pass = 0; pass < 2; pass++) {
     const next = grid.map(row => row.slice());
-    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) {
+    for (let y = pole; y < ROWS - pole; y++) for (let x = 0; x < COLS; x++) {
       let c = 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (grid[y + dy][x + dx] === LAND) c++;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= ROWS) continue;
+        const xx = (x + dx + COLS) % COLS;
+        if (grid[yy][xx] === LAND) c++;
+      }
       if (grid[y][x] === LAND && c <= 2) next[y][x] = WATER;
       else if (grid[y][x] !== LAND && c >= 8) next[y][x] = LAND;
     }
     grid = next;
   }
+  for (let y = 0; y < pole; y++) for (let x = 0; x < COLS; x++) { grid[y][x] = WATER; grid[ROWS - 1 - y][x] = WATER; }
+  separateCenters(centers);
   for (const blob of landMasses(0)) if (blob.length < 55) for (const [x, y] of blob) grid[y][x] = WATER;
   traceRivers();
   continents = landMasses(80).length;
@@ -205,10 +226,13 @@ function separateCenters(centers) {
   for (let i = 0; i < centers.length; i++) for (let j = i + 1; j < centers.length; j++) {
     const A = centers[i], B = centers[j];
     if (at(A) !== at(B)) continue;
-    const span = Math.hypot(A.x - B.x, A.y - B.y);
-    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) {
+    const span = Math.hypot(Math.min(Math.abs(A.x - B.x), COLS - Math.abs(A.x - B.x)), A.y - B.y);
+    for (let y = 1; y < ROWS - 1; y++) for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
-      const da = Math.hypot(x - A.x, y - A.y), db = Math.hypot(x - B.x, y - B.y);
+      let dax = Math.abs(x - A.x), dbx = Math.abs(x - B.x);
+      if (dax > COLS / 2) dax = COLS - dax;
+      if (dbx > COLS / 2) dbx = COLS - dbx;
+      const da = Math.hypot(dax, y - A.y), db = Math.hypot(dbx, y - B.y);
       if (Math.abs(da - db) < 3.2 && da + db < span + 10 && elev[y][x] < 0.48) grid[y][x] = WATER;
     }
   }

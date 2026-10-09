@@ -86,8 +86,11 @@ function claim(x, y, id) {
 
 function claimDisk(n, r) {
   const c = n.capital;
-  for (let y = Math.max(0, c.y - r); y <= Math.min(ROWS - 1, c.y + r); y++) {
-    for (let x = Math.max(0, c.x - r); x <= Math.min(COLS - 1, c.x + r); x++) {
+  for (let dy = -r; dy <= r; dy++) {
+    const y = c.y + dy;
+    if (y < 0 || y >= ROWS) continue;
+    for (let dx = -r; dx <= r; dx++) {
+      const x = (c.x + dx + COLS) % COLS;
       if (grid[y][x] !== LAND || owner[y][x] >= 0) continue;
       if (hypot(x, y, c) <= r) claim(x, y, n.id);
     }
@@ -548,15 +551,15 @@ function markParched() {
 function settleFrontier(n, x, y) {
   const hungry = n.hungry || 0;
   const forced = n.gov === "Dictatorship" && hungry <= 0.14 && (n.legitimacy || 0) > 48;
-  if (hungry > 0.07 && !forced) return false;
-  if (n.gov === "Monarchy" && n.capital && hypot(x, y, n.capital) > Math.max(14, (n.reach || 8) + 4)) return false;
+  if (hungry > 0.2 && !forced) return false;
+  if (n.gov === "Monarchy" && n.capital && hypot(x, y, n.capital) > Math.max(26, (n.reach || 8) + 10)) return false;
   let donor = null, best = 0;
   for (const [nx, ny] of neighbors(x, y)) {
     if (owner[ny][nx] !== n.id) continue;
     const souls = pop[ny][nx] || 0;
     if (souls > best) { best = souls; donor = [nx, ny]; }
   }
-  if (!donor || best < (forced ? 520 : 760)) return false;
+  if (!donor || best < (forced ? 420 : 520)) return false;
   const frac = n.gov === "Dictatorship" ? 0.16 : n.gov === "Republic" ? 0.055 : n.gov === "Oligarchy" ? 0.07 : 0.09;
   let move = Math.round(best * frac);
   move = Math.max(30, Math.min(best - 380, move));
@@ -649,29 +652,27 @@ function immigrate() {
 }
 
 function grow(n) {
-  if ((n.hungry || 0) > 0.16) return;
-  if ((n.hungry || 0) > 0.07 && n.gov !== "Dictatorship") return;
+  if ((n.hungry || 0) > 0.2) return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
-  const thick = moves.filter(m => m.friends >= 2 || (coast && coast[m.ty] && coast[m.ty][m.tx]));
-  if (thick.length > 2) moves = thick;
   const reach = Math.max(3, n.reach || 3);
   const R = rules(n.gov);
   const bx = Math.cos(n.bearing || 0), by = Math.sin(n.bearing || 0);
   for (const m of moves) {
-    const dx = m.tx - n.capital.x, dy = m.ty - n.capital.y;
+    let dx = m.tx - n.capital.x;
+    if (dx > COLS / 2) dx -= COLS;
+    if (dx < -COLS / 2) dx += COLS;
+    const dy = m.ty - n.capital.y;
     const len = Math.hypot(dx, dy) || 1;
     const align = (dx / len) * bx + (dy / len) * by;
-    const stretch = m.d > reach + 3 ? -2 : 0;
-    const sea = coast && coast[m.ty][m.tx] ? R.trade * 2 : 0;
-    const near = m.d < 8 ? R.hold * 1.4 : 0;
-    m.score = m.friends * 3.2 + align * (n.drive || 0.5) * 2.2 + stretch + sea + near + rnd();
+    const stretch = m.d > reach + 8 ? -1.4 : 0;
+    const sea = coast && coast[m.ty][m.tx] ? R.trade * 1.2 : 0;
+    const near = m.d < 8 ? R.hold * 1.2 : 0;
+    m.score = m.friends * 1.4 + align * (n.drive || 0.5) + stretch + sea + near + rnd();
   }
   moves.sort((a, b) => b.score - a.score);
-  let take = 1;
-  if ((n.hungry || 0) < 0.03 && n.gov === "Republic") take = 2;
-  if (n.gov === "Dictatorship" && (n.legitimacy || 60) > 55 && (n.hungry || 0) < 0.1) take = 2;
-  if ((n.legitimacy || 60) < 42) take = 1;
+  let take = (n.hungry || 0) < 0.08 ? 2 : 1;
+  if ((n.legitimacy || 60) < 36) take = 1;
   take = Math.min(moves.length, take);
   for (let i = 0; i < take; i++) {
     const m = moves[i];
@@ -1878,7 +1879,7 @@ function markCoast() {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
-      if (x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1 || neighbors(x, y).some(([nx, ny]) => grid[ny][nx] !== LAND)) coast[y][x] = true;
+      if (neighbors(x, y).some(([nx, ny]) => grid[ny][nx] !== LAND)) coast[y][x] = true;
     }
   }
 }

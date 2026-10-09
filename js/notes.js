@@ -1,5 +1,14 @@
-const VERSION = "0.12";
+const VERSION = "0.13";
 const HISTORY = [
+  {
+    v: "0.13",
+    date: "9 Oct 2026",
+    items: [
+      "Coasts are no longer a darker band. A shore is just the edge of the land.",
+      "The map runs east to west without a wall. The far north and far south stay ocean, so a continent is not cut flat by the frame.",
+      "A fed realm keeps settling empty land in front of it. A little hunger no longer freezes the frontier for good."
+    ]
+  },
   {
     v: "0.12",
     date: "9 Oct 2026",

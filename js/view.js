@@ -90,9 +90,12 @@ function drawUnits(cw, ch) {
     const n = byId(u.owner);
     if (!n) continue;
     ctx.beginPath();
+    let open = false;
     for (let i = 0; i < u.path.length; i++) {
       const px = (u.path[i][0] + 0.5) * cw, py = (u.path[i][1] + 0.5) * ch;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      if (i > 0 && Math.abs(u.path[i][0] - u.path[i - 1][0]) > 2) open = false;
+      if (!open) { ctx.moveTo(px, py); open = true; }
+      else ctx.lineTo(px, py);
     }
     ctx.strokeStyle = n.color;
     ctx.globalAlpha = 0.28;
@@ -140,13 +143,12 @@ function render() {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
       const id = owner[y][x];
-      const edge = coast && coast[y][x];
-      let fill = edge ? "#243028" : "#354238";
+      let fill = "#3a463c";
       if (mapMode === "faith" && belief && belief[y][x]) {
         fill = mixFaithColor(belief[y][x]);
       } else if (id >= 0) {
         const base = byId(id)?.color || "#888888";
-        fill = edge ? tint(base, "#10140f", 0.28) : tint(base, "#ffffff", Math.max(0, Math.min(0.14, ((pop && pop[y][x]) || 1000) / 28000)));
+        fill = tint(base, "#ffffff", Math.max(0, Math.min(0.1, ((pop && pop[y][x]) || 1000) / 36000)));
       }
       ctx.fillStyle = fill;
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
@@ -162,9 +164,11 @@ function render() {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
-      if (x === COLS - 1 || grid[y][x + 1] !== LAND) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+      const east = (x + 1) % COLS;
+      const west = (x + COLS - 1) % COLS;
+      if (grid[y][east] !== LAND) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
       if (y === ROWS - 1 || grid[y + 1][x] !== LAND) { ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
-      if (x === 0 || grid[y][x - 1] !== LAND) { ctx.moveTo(x * cw, y * ch); ctx.lineTo(x * cw, (y + 1) * ch); }
+      if (grid[y][west] !== LAND) { ctx.moveTo(x * cw, y * ch); ctx.lineTo(x * cw, (y + 1) * ch); }
       if (y === 0 || grid[y - 1][x] !== LAND) { ctx.moveTo(x * cw, y * ch); ctx.lineTo((x + 1) * cw, y * ch); }
     }
   }
@@ -173,7 +177,7 @@ function render() {
     ctx.lineCap = "round";
     ctx.beginPath();
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-      if (river[y][x] < 28 || flowToX[y][x] < 0) continue;
+      if (river[y][x] < 28 || flowToX[y][x] < 0 || Math.abs(flowToX[y][x] - x) > 2) continue;
       ctx.moveTo((x + 0.5) * cw, (y + 0.5) * ch);
       ctx.lineTo((flowToX[y][x] + 0.5) * cw, (flowToY[y][x] + 0.5) * ch);
     }
@@ -182,7 +186,7 @@ function render() {
     ctx.stroke();
     ctx.beginPath();
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-      if (river[y][x] < 11 || river[y][x] >= 28 || flowToX[y][x] < 0) continue;
+      if (river[y][x] < 11 || river[y][x] >= 28 || flowToX[y][x] < 0 || Math.abs(flowToX[y][x] - x) > 2) continue;
       ctx.moveTo((x + 0.5) * cw, (y + 0.5) * ch);
       ctx.lineTo((flowToX[y][x] + 0.5) * cw, (flowToY[y][x] + 0.5) * ch);
     }
@@ -196,7 +200,8 @@ function render() {
     for (let x = 0; x < COLS; x++) {
       const id = owner[y][x];
       if (id < 0) continue;
-      if (x < COLS - 1 && grid[y][x + 1] === LAND && owner[y][x + 1] !== id) {
+      const east = (x + 1) % COLS;
+      if (grid[y][east] === LAND && owner[y][east] !== id) {
         ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch);
       }
       if (y < ROWS - 1 && grid[y + 1][x] === LAND && owner[y + 1][x] !== id) {
@@ -210,16 +215,12 @@ function render() {
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       if (owner[y][x] !== selected) continue;
-      if (x < COLS - 1 && grid[y][x + 1] === LAND && owner[y][x + 1] !== selected) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
+      const east = (x + 1) % COLS;
+      if (grid[y][east] === LAND && owner[y][east] !== selected) { ctx.moveTo((x + 1) * cw, y * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
       if (y < ROWS - 1 && grid[y + 1][x] === LAND && owner[y + 1][x] !== selected) { ctx.moveTo(x * cw, (y + 1) * ch); ctx.lineTo((x + 1) * cw, (y + 1) * ch); }
     }
   }
   ctx.stroke();
-  const shade = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.28, canvas.width / 2, canvas.height / 2, canvas.width * 0.72);
-  shade.addColorStop(0, "rgba(0,0,0,0)");
-  shade.addColorStop(1, "rgba(0,0,0,0.38)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
   drawUnits(cw, ch);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
