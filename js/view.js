@@ -33,6 +33,62 @@ function drawPlace(c, core, cw, ch) {
     ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.2, rad * 0.46), 0, Math.PI * 2); ctx.fillStyle = core; ctx.fill();
   }
 }
+function drawShip(x, y, color, war, hdg) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate((hdg || -Math.PI / 2) + Math.PI / 2);
+  ctx.beginPath();
+  ctx.moveTo(0, war ? -6.2 : -4.4);
+  ctx.lineTo(war ? 3.1 : 2.2, war ? 4.4 : 3.1);
+  ctx.lineTo(war ? -3.1 : -2.2, war ? 4.4 : 3.1);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(244,247,252,0.9)";
+  ctx.lineWidth = war ? 1 : 0.7;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, war ? -8.2 : -6);
+  ctx.stroke();
+  if (war) {
+    ctx.beginPath();
+    ctx.moveTo(0.6, -7.4);
+    ctx.lineTo(3.4, -6.2);
+    ctx.lineTo(0.6, -5.2);
+    ctx.fillStyle = "#f4f7fc";
+    ctx.fill();
+  }
+  ctx.restore();
+}
+function drawUnits(cw, ch) {
+  if (!units) return;
+  for (const u of units) {
+    const n = byId(u.owner);
+    if (!n) continue;
+    const x = (u.x + 0.5) * cw, y = (u.y + 0.5) * ch;
+    if (u.kind === "host") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = n.color;
+      ctx.strokeStyle = u.fed < 0.7 ? "rgba(244,247,252,0.35)" : "#f4f7fc";
+      ctx.lineWidth = 1;
+      const s = Math.max(2.2, Math.min(cw, ch) * 0.16);
+      ctx.fillRect(-s, -s, s * 2, s * 2);
+      ctx.strokeRect(-s, -s, s * 2, s * 2);
+      ctx.restore();
+    } else if (u.kind === "barge") {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = n.color;
+      ctx.strokeStyle = "rgba(244,247,252,0.75)";
+      ctx.lineWidth = 0.6;
+      ctx.fillRect(-3.2, -1.3, 6.4, 2.6);
+      ctx.strokeRect(-3.2, -1.3, 6.4, 2.6);
+      ctx.restore();
+    } else drawShip(x, y, n.color, u.kind === "warship", u.hdg);
+  }
+}
 function render() {
   const cw = canvas.width / COLS, ch = canvas.height / ROWS;
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -132,6 +188,7 @@ function render() {
   shade.addColorStop(1, "rgba(0,0,0,0.38)");
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawUnits(cw, ch);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   if ("letterSpacing" in ctx) ctx.letterSpacing = "0.14em";
@@ -173,6 +230,7 @@ function row(label, value) {
 function situation(n) {
   if (n.parched) return "Drought. The river's country is failing, and the cities feel it.";
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
+  if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The host is in the field and the grain is not keeping up with it.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
   if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
@@ -260,6 +318,8 @@ function drawUI() {
         + row("Government", govLabel(focus.gov))
         + (focus.gov === "Republic" ? row("Parties", partyLine(focus)) : "")
         + row("Ships", seaWord(focus))
+        + row("On the water", unitCount(focus.id, "barge") + " barges · " + unitCount(focus.id, "cog") + " cogs · " + unitCount(focus.id, "warship") + " warships")
+        + row("Hosts", unitCount(focus.id, "host"))
         + row("Legitimacy", Math.round(focus.legitimacy || 0))
         + row("River pacts", focus.pacts || 0)
         + row("Prosperity", fmt(focus.wealth))
@@ -302,6 +362,18 @@ canvas.addEventListener("mousemove", e => {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls;
     } else label = "Unclaimed  ·  " + souls;
+  }
+  const here = (units || []).filter(u => u.x === x && u.y === y);
+  if (here.length) {
+    const bit = here.map(u => {
+      const who = byId(u.owner);
+      const name = who ? who.name : "a realm";
+      if (u.kind === "barge") return "Barge of " + name;
+      if (u.kind === "cog") return "Cog of " + name + " · grain " + fmt(u.cargo);
+      if (u.kind === "warship") return "Warship of " + name;
+      return "Host of " + name + " · " + fmt(u.men);
+    }).join("  ·  ");
+    label = grid[y] && grid[y][x] === LAND ? label + "  ·  " + bit : bit;
   }
   tip.textContent = label;
   tip.style.display = "block";

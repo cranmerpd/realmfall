@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11 — 9 Oct 2026
+
+- Barges, cogs, warships, and hosts are on the map. Hover one to see whose it is.
+- A barge carries grain. It can feed a city downstream, or be taken if the river is at war.
+- A cog spends grain to cross water, to a colony or a trade partner. A warship costs grain to keep at sea, and a landing without one is much weaker.
+- A host is people taken off the land. It has to be fed from the grain, and a fight goes worse where no host is standing.
+
 ## 0.10 — 9 Oct 2026
 
 - A republic votes. Merchants, the ports, the country, a cult, or a hard hand can keep it or replace it. Hunger, faith, and fear decide the weight.
