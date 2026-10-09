@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31 — 9 Oct 2026
+
+- Hunger slows a realm. It no longer stops growth, learning, and sailing unless the famine is severe.
+- A settlement spends coin only when the people actually move.
+- A fed country is taxed on its people, so the treasury can keep working.
+- A voyage to a shore the crown cannot walk to founds a new people.
+- A distant march can break away. The country is not split in half.
+- A new map keeps the people it just placed.
+
 ## 0.30 — 9 Oct 2026
 
 - The world begins with one small people. The rest of the land is empty.

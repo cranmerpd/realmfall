@@ -1,5 +1,18 @@
-const VERSION = "0.30";
+const VERSION = "0.31";
 const HISTORY = [
+  {
+    v: "0.31",
+    date: "9 Oct 2026",
+    items: [
+      "A hungry country is slowed, not switched off. It can still settle, learn, and put to sea. Only a real famine stops it.",
+      "Coin is spent when people actually settle. A failed attempt no longer drains the treasury.",
+      "A fed country pays a tax on its people, so the treasury is not stuck at nothing while the realm sits still.",
+      "People who walk onto empty land remain part of the realm.",
+      "A ship that reaches a shore the crown cannot walk to founds a new people there. It does not paint the old realm across the ocean.",
+      "A realm that has stretched too far can lose a distant march. It is not cut in half.",
+      "Starting a new map no longer loses the people, which happened when the old realm list was still in memory."
+    ]
+  },
   {
     v: "0.30",
     date: "9 Oct 2026",
