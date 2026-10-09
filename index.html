@@ -109,6 +109,7 @@ const COLS = 120, ROWS = 78;
 const LAND = 1, WATER = 0;
 const prefixes = ["Ash","Dun","Kor","Vel","Mar","Ost","Ryn","Hal","Tor","Brae","Quel","Sar","Ith","Nor","Caer","Wyn","Gal","Thal","Eld","Mir"];
 const suffixes = ["wald","heim","dor","reach","mark","hold","ia","und","fen","gard","mere","wyn","oth","lan","bar","ric","moor","stead","vane","spire"];
+const citySuffixes = ["ton","ford","port","burgh","haven","bridge","mouth","kirk","wick","stad"];
 const colors = ["#d4655c","#e0ae58","#4eae9c","#6d90d6","#c96b9a","#e08a45","#8fb45e","#c9a06a","#3f9178","#d46d78","#b59a48","#3e8c96","#d48462","#7d74d0","#d2c15a","#5a9a55","#c45656","#4d7eb8","#d49a74","#8a8648"];
 
 const FAITH_POOL = ["Ashen Rite", "High Canon", "Old Grove", "Sun Creed", "Pale Choir", "Iron Psalm"];
@@ -119,6 +120,8 @@ const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
 let nextId = 1;
+let nextCity = 1;
+let cities = [];
 let speed = 2;
 let mapMode = "politics";
 let tab = "realm";
@@ -169,6 +172,13 @@ function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483
 function ri(n) { return Math.floor(rnd() * n); }
 function pick(a) { return a[ri(a.length)]; }
 function nameRealm() { return pick(prefixes) + pick(suffixes); }
+function nameCity() {
+  for (let i = 0; i < 8; i++) {
+    const n = pick(prefixes) + pick(citySuffixes);
+    if (!cities.some(c => c.name === n)) return n;
+  }
+  return pick(prefixes) + pick(citySuffixes) + (nextCity || 1);
+}
 function hypot(x, y, c) { const dx = x - c.x, dy = y - c.y; return Math.sqrt(dx * dx + dy * dy); }
 function key(x, y) { return y * COLS + x; }
 
@@ -325,6 +335,8 @@ function generate() {
   seedPop();
   nations = [];
   nextId = 1;
+  nextCity = 1;
+  cities = [];
   year = 800 + ri(400);
   logLines = [];
   const spots = [];
@@ -367,6 +379,9 @@ function found(x, y, name, color, why, gov, faithId) {
     faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0
   };
   nations.push(n);
+  const seat = placeCity(x, y, nameCity(), "city");
+  n.seat = seat.id;
+  n.capital = { x, y };
   if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
   const crown = name + " is founded as " + govArticle(g) + (g === "Theocracy" ? ". The cult is " + faithName(f) + ", which the capital's people already follow." : ".");
   chronicle(year || 1000, why || crown);
@@ -466,6 +481,7 @@ function step() {
   year++;
   demography();
   culture();
+  growCities();
   recount();
   const claimants = nations.slice();
   for (const n of claimants) {
@@ -486,24 +502,109 @@ function step() {
   absorbTiny();
   if (year % 35 === 0) seedEmptyContinent();
   recount();
-  for (const n of nations) settleCapital(n);
+  for (const n of nations) holdSeat(n);
+  recount();
   drawUI();
 }
 
-function settleCapital(n) {
-  if (n.capital && owner[n.capital.y] && owner[n.capital.y][n.capital.x] === n.id) return;
+function placeCity(x, y, name, rank) {
+  let c = cities.find(c => c.x === x && c.y === y);
+  if (c) {
+    if (rank === "city" && c.rank === "town") c.rank = "city";
+    return c;
+  }
+  c = { id: nextCity++, name, x, y, rank: rank || "town" };
+  cities.push(c);
+  if (pop && pop[y]) pop[y][x] = Math.max(pop[y][x] || 0, c.rank === "city" ? 4200 : 2800);
+  return c;
+}
+
+function citiesIn(cells) {
+  const set = new Set(cells.map(([x, y]) => key(x, y)));
+  return cities.filter(c => set.has(key(c.x, c.y)));
+}
+
+function growCities() {
+  if (!pop || !owner) return;
+  for (const c of cities) {
+    if (c.rank !== "town") continue;
+    if ((pop[c.y][c.x] || 0) < 4600) continue;
+    c.rank = "city";
+    const realm = byId(owner[c.y][c.x]);
+    if (realm) chronicle(year, c.name + " is now a city of " + realm.name + ".");
+  }
+  const open = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND || owner[y][x] < 0) continue;
+    if (cities.some(c => c.x === x && c.y === y)) continue;
+    const souls = pop[y][x] || 0;
+    const need = coast[y][x] ? 2000 : 2600;
+    if (souls >= need) open.push([x, y, souls]);
+  }
+  open.sort((a, b) => b[2] - a[2]);
+  for (const [x, y] of open) {
+    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < 7)) continue;
+    const realm = byId(owner[y][x]);
+    if (!realm) continue;
+    const owned = cities.filter(c => owner[c.y][c.x] === realm.id).length;
+    if (owned > Math.max(2, realm.pops / 32)) continue;
+    const town = placeCity(x, y, nameCity(), "town");
+    chronicle(year, town.name + " rises in " + realm.name + ".");
+  }
+}
+
+function relocateSeat(n, lost, cells) {
+  const set = new Set(cells.map(([x, y]) => key(x, y)));
+  const taker = lost ? byId(owner[lost.y][lost.x]) : null;
+  if (lost && pop[lost.y]) pop[lost.y][lost.x] = Math.max(400, Math.round((pop[lost.y][lost.x] || 800) * 0.66));
+  const shock = n.gov === "Dictatorship" ? 40 : n.gov === "Monarchy" || n.gov === "Theocracy" ? 36 : 28;
+  n.legitimacy = Math.max(6, (n.legitimacy || 40) - shock);
+  n.stability = Math.max(5, (n.stability || 30) - 24);
+  if (cells.length < 16) {
+    chronicle(year, (taker ? taker.name + " takes " + (lost ? lost.name : "the capital") + ". " : "") + n.name + " does not outlive its capital.");
+    if (taker) for (const [x, y] of cells) if (owner[y][x] === n.id) claim(x, y, taker.id);
+    else annex(cells);
+    n.pops = 0;
+    return;
+  }
+  const mine = citiesIn(cells).filter(c => !lost || c.id !== lost.id);
+  const far = lost ? mine.filter(c => Math.hypot(c.x - lost.x, c.y - lost.y) > 2.4) : mine;
+  const pool = far.length ? far : mine;
+  pool.sort((a, b) => ((b.rank === "city") - (a.rank === "city")) || ((pop[b.y][b.x] || 0) - (pop[a.y][a.x] || 0)));
+  if (pool.length) {
+    const next = pool[0];
+    if (next.rank === "town") next.rank = "city";
+    n.seat = next.id;
+    n.capital = { x: next.x, y: next.y };
+    chronicle(year, (taker && lost ? taker.name + " takes " + lost.name + ", capital of " + n.name + ". " : "The court of " + n.name + " is displaced. ") + "It removes to " + next.name + ".");
+    return;
+  }
+  let best = cells[0], bestS = -1;
+  const distant = lost ? cells.filter(([x, y]) => Math.hypot(x - lost.x, y - lost.y) > 4) : cells;
+  for (const [x, y] of (distant.length ? distant : cells)) {
+    const s = pop[y][x] || 0;
+    if (s > bestS && set.has(key(x, y))) { bestS = s; best = [x, y]; }
+  }
+  const town = placeCity(best[0], best[1], nameCity(), "town");
+  n.seat = town.id;
+  n.capital = { x: best[0], y: best[1] };
+  n.legitimacy = Math.max(6, n.legitimacy - 8);
+  chronicle(year, (taker && lost ? taker.name + " takes " + lost.name + ", capital of " + n.name + ". " : "") + "There is no other city. A thin court sits at " + town.name + ".");
+}
+
+function holdSeat(n) {
+  if (!nations.includes(n)) return;
+  const seat = cities.find(c => c.id === n.seat);
+  if (seat && owner[seat.y] && owner[seat.y][seat.x] === n.id) {
+    n.capital = { x: seat.x, y: seat.y };
+    return;
+  }
   const cells = cellsOf(n.id);
   if (!cells.length) return;
-  const comps = components(cells);
-  const main = comps[0];
-  let best = main[0], bestD = Infinity;
-  const origin = n.capital || { x: best[0], y: best[1] };
-  for (const [x, y] of main) {
-    const d = hypot(x, y, origin);
-    if (d < bestD) { bestD = d; best = [x, y]; }
-  }
-  n.capital = { x: best[0], y: best[1] };
+  relocateSeat(n, seat, cells);
 }
+
+function settleCapital(n) { holdSeat(n); }
 
 function measure(n) {
   const cells = cellsOf(n.id);
@@ -737,7 +838,8 @@ function warPush(n) {
       if (severs(foe.id, m.tx, m.ty)) continue;
       const power = muster(n) * (0.94 + rnd() * 0.12);
       let defense = muster(foe) * (0.94 + rnd() * 0.12);
-      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense *= 1.45;
+      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense *= 1.55;
+      else if (cities.some(c => c.x === m.tx && c.y === m.ty)) defense *= 1.16;
       if (m.reclaim) defense *= 0.62;
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
@@ -871,15 +973,6 @@ function keepWhole() {
     const comps = components(cells);
     if (comps.length < 2) continue;
     const main = comps[0];
-    let cx = 0, cy = 0;
-    for (const [x, y] of main) { cx += x; cy += y; }
-    cx /= main.length; cy /= main.length;
-    let best = main[0], bestD = Infinity;
-    for (const [x, y] of main) {
-      const d = Math.hypot(x - cx, y - cy);
-      if (d < bestD) { bestD = d; best = [x, y]; }
-    }
-    n.capital = { x: best[0], y: best[1] };
     for (let i = 1; i < comps.length; i++) {
       const chunk = comps[i];
       if (chunk.length <= 12) {
@@ -1011,6 +1104,7 @@ function demography() {
       const R = rules(n.gov);
       rate *= R.grow;
       if ((n.legitimacy || 60) < 42) rate *= 0.78;
+      if (cities.some(c => c.x === x && c.y === y)) { rate *= 1.35; cap = Math.max(cap, 6800); }
     }
     if (p < cap) p = Math.min(cap, Math.round(p * (1 + rate)));
     pop[y][x] = Math.max(180, p);
@@ -1131,6 +1225,13 @@ function render() {
     ctx.fillText(n.name.toUpperCase(), px, py);
   }
   if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+  for (const c of cities) {
+    if (!owner[c.y] || owner[c.y][c.x] < 0) continue;
+    if (nations.some(n => n.seat === c.id && n.pops > 0)) continue;
+    const cx = (c.x + 0.5) * cw, cy = (c.y + 0.5) * ch;
+    const rad = c.rank === "city" ? Math.max(1.7, Math.min(cw, ch) * 0.16) : Math.max(1.15, Math.min(cw, ch) * 0.1);
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fillStyle = "rgba(244,247,252,0.92)"; ctx.fill();
+  }
   for (const n of nations) {
     if (!n.capital || !owner[n.capital.y] || owner[n.capital.y][n.capital.x] !== n.id) continue;
     const cx = (n.capital.x + 0.5) * cw, cy = (n.capital.y + 0.5) * ch;
@@ -1222,6 +1323,8 @@ function drawUI() {
         + row("Population", fmt(focus.people))
         + row("Provinces", focus.pops)
         + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
+        + row("Seat", (cities.find(c => c.id === focus.seat) || {}).name || "—")
+        + row("Cities", cities.filter(c => owner[c.y] && owner[c.y][c.x] === focus.id).length)
         + row("Largest faith", faithName(focus.creed) + " " + Math.round((focus.creedShare || 0) * 100) + "%")
         + '<div class="kicker sub">STATE</div>'
         + row("Government", govLabel(focus.gov))
@@ -1253,16 +1356,18 @@ canvas.addEventListener("mousemove", e => {
   let label = "Ocean";
   if (grid[y] && grid[y][x] === LAND) {
     const souls = fmt(pop && pop[y] ? pop[y][x] : 0);
+    const place = cities.find(c => c.x === x && c.y === y);
+    const placeBit = place ? place.name + (owner[y][x] >= 0 && byId(owner[y][x])?.seat === place.id ? " · capital" : " · " + place.rank) + " · " : "";
     if (mapMode === "faith" && belief && belief[y] && belief[y][x]) {
       const s = belief[y][x];
       const order = [0, 1, 2].sort((a, b) => s[b] - s[a]);
       const who = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Unclaimed") : "Unclaimed";
-      label = faithName(order[0]) + " " + Math.round(s[order[0]] * 100) + "%"
+      label = placeBit + faithName(order[0]) + " " + Math.round(s[order[0]] * 100) + "%"
         + (s[order[1]] > 0.12 ? "  ·  " + faithName(order[1]) + " " + Math.round(s[order[1]] * 100) + "%" : "")
         + "  ·  " + who;
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
-      label = (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls;
+      label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls;
     } else label = "Unclaimed  ·  " + souls;
   }
   tip.textContent = label;
