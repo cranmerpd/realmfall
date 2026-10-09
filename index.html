@@ -348,35 +348,78 @@ function traceRivers() {
   riverSys = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   flowToX = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   flowToY = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
-  const acc = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-  const order = [];
+  const h = elev.map(row => row.slice());
+  const seen = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  const heap = [];
+  function push(x, y, hh) {
+    heap.push({ x, y, h: hh });
+    let i = heap.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (heap[p].h <= heap[i].h) break;
+      const t = heap[p]; heap[p] = heap[i]; heap[i] = t;
+      i = p;
+    }
+  }
+  function pop() {
+    if (!heap.length) return null;
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        let s = i, l = i * 2 + 1, r = l + 1;
+        if (l < heap.length && heap[l].h < heap[s].h) s = l;
+        if (r < heap.length && heap[r].h < heap[s].h) s = r;
+        if (s === i) break;
+        const t = heap[s]; heap[s] = heap[i]; heap[i] = t;
+        i = s;
+      }
+    }
+    return top;
+  }
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND) continue;
+    const sea = neighbors(x, y).find(([nx, ny]) => grid[ny][nx] !== LAND);
+    if (!sea) continue;
+    seen[y][x] = true;
+    flowToX[y][x] = sea[0];
+    flowToY[y][x] = sea[1];
+    push(x, y, h[y][x]);
+  }
+  while (heap.length) {
+    const c = pop();
+    for (const [nx, ny] of neighbors(c.x, c.y)) {
+      if (grid[ny][nx] !== LAND || seen[ny][nx]) continue;
+      seen[ny][nx] = true;
+      flowToX[ny][nx] = c.x;
+      flowToY[ny][nx] = c.y;
+      if (h[ny][nx] <= h[c.y][c.x]) h[ny][nx] = h[c.y][c.x] + 0.0001;
+      push(nx, ny, h[ny][nx]);
+    }
+  }
+  const acc = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const order = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) {
     acc[y][x] = 1;
     order.push([x, y]);
-    let bx = -1, by = -1, bh = elev[y][x];
-    for (const [nx, ny] of neighbors(x, y)) {
-      const h = grid[ny][nx] === LAND ? elev[ny][nx] : elev[y][x] - 1;
-      if (h < bh) { bh = h; bx = nx; by = ny; }
-    }
-    flowToX[y][x] = bx;
-    flowToY[y][x] = by;
   }
-  order.sort((a, b) => elev[b[1]][b[0]] - elev[a[1]][a[0]]);
+  order.sort((a, b) => h[b[1]][b[0]] - h[a[1]][a[0]]);
   for (const [x, y] of order) {
     const nx = flowToX[y][x], ny = flowToY[y][x];
     if (nx >= 0 && grid[ny][nx] === LAND) acc[ny][nx] += acc[y][x];
   }
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (acc[y][x] >= 11) river[y][x] = acc[y][x];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (acc[y][x] >= 12) river[y][x] = acc[y][x];
   let sid = 1;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-    if (river[y][x] < 11 || riverSys[y][x]) continue;
+    if (river[y][x] < 12 || riverSys[y][x]) continue;
     const q = [[x, y]];
     riverSys[y][x] = sid;
     while (q.length) {
       const [cx, cy] = q.shift();
       for (const [nx, ny] of neighbors(cx, cy)) {
-        if (river[ny][nx] >= 11 && !riverSys[ny][nx]) { riverSys[ny][nx] = sid; q.push([nx, ny]); }
+        if (river[ny][nx] >= 12 && !riverSys[ny][nx]) { riverSys[ny][nx] = sid; q.push([nx, ny]); }
       }
     }
     sid++;
@@ -490,8 +533,10 @@ function claim(x, y, id) {
   if (owner[y][x] !== id) {
     if (owner[y][x] >= 0 && id >= 0 && pop && pop[y][x]) {
       const city = cities.find(c => c.x === x && c.y === y);
+      const tier = city ? tierAt(city.rank) : 0;
+      const keeps = [0.9, 0.8, 0.66, 0.56, 0.48];
       const seat = city && nations.some(n => n.seat === city.id && n.capital && n.capital.x === x && n.capital.y === y);
-      const keep = !city ? 0.93 : seat ? 0.52 : city.rank === "city" ? 0.64 : 0.78;
+      const keep = !city ? 0.93 : seat ? Math.min(0.52, keeps[tier]) : keeps[tier];
       pop[y][x] = Math.max(160, Math.round(pop[y][x] * keep));
     }
     prev[y][x] = owner[y][x];
@@ -619,6 +664,41 @@ function step() {
   drawUI();
 }
 
+const TIERS = [
+  { id: "village", at: 0 },
+  { id: "town", at: 1700 },
+  { id: "city", at: 4200 },
+  { id: "great city", at: 8000 },
+  { id: "metropolis", at: 12000 }
+];
+function tierAt(rank) {
+  const i = TIERS.findIndex(t => t.id === rank);
+  return i < 0 ? 0 : i;
+}
+function tierFor(souls, current) {
+  let i = 0;
+  for (let k = TIERS.length - 1; k >= 0; k--) if (souls >= TIERS[k].at) { i = k; break; }
+  const cur = tierAt(current);
+  if (current && i < cur && souls >= TIERS[cur].at * 0.82) return cur;
+  return i;
+}
+function settleRanks() {
+  if (!cities || !pop) return;
+  for (const c of cities) {
+    const souls = pop[c.y] && pop[c.y][c.x] || 0;
+    const next = TIERS[tierFor(souls, c.rank)].id;
+    if (next === c.rank) continue;
+    const up = tierAt(next) > tierAt(c.rank);
+    c.rank = next;
+    if (!up || tierAt(next) < 2) continue;
+    const realm = owner[c.y] && byId(owner[c.y][c.x]);
+    const line = next === "city" ? " is a city now."
+      : next === "great city" ? " has become a great city."
+      : " has become a metropolis.";
+    if (realm) chronicle(year, c.name + line);
+  }
+}
+
 function placeCity(x, y, name, rank) {
   let c = cities.find(c => c.x === x && c.y === y);
   if (c) {
@@ -670,20 +750,14 @@ function capacity(x, y) {
   }
   if (city) {
     const seat = n && n.seat === city.id;
-    K = Math.max(K, city.rank === "city" ? (seat ? 12500 : 8400) : 4300);
+    const caps = [2400, 4800, 9000, 14000, 20000];
+    K = Math.max(K, caps[tierAt(city.rank)] * (seat ? 1.12 : 1));
   }
   return Math.max(380, Math.round(K));
 }
 
 function growCities() {
   if (!pop || !owner) return;
-  for (const c of cities) {
-    if (c.rank !== "town") continue;
-    if ((pop[c.y][c.x] || 0) < 5600) continue;
-    c.rank = "city";
-    const realm = byId(owner[c.y][c.x]);
-    if (realm) chronicle(year, c.name + " has outgrown a town. It draws on the country around it.");
-  }
   const founded = new Set();
   const sites = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
@@ -721,6 +795,7 @@ function growCities() {
     chronicle(year, town.name + " is chartered in " + s.realm.name + ", " + why + ".");
     founded.add(s.realm.id);
   }
+  settleRanks();
 }
 
 function relocateSeat(n, lost, cells) {
@@ -740,10 +815,10 @@ function relocateSeat(n, lost, cells) {
   const mine = citiesIn(cells).filter(c => !lost || c.id !== lost.id);
   const far = lost ? mine.filter(c => Math.hypot(c.x - lost.x, c.y - lost.y) > 2.4) : mine;
   const pool = far.length ? far : mine;
-  pool.sort((a, b) => ((b.rank === "city") - (a.rank === "city")) || ((pop[b.y][b.x] || 0) - (pop[a.y][a.x] || 0)));
+  pool.sort((a, b) => (tierAt(b.rank) - tierAt(a.rank)) || ((pop[b.y][b.x] || 0) - (pop[a.y][a.x] || 0)));
   if (pool.length) {
     const next = pool[0];
-    if (next.rank === "town") next.rank = "city";
+    if (tierAt(next.rank) < 1) next.rank = "town";
     n.seat = next.id;
     n.capital = { x: next.x, y: next.y };
     chronicle(year, (taker && lost ? taker.name + " takes " + lost.name + ", capital of " + n.name + ". " : "The court of " + n.name + " is displaced. ") + "It removes to " + next.name + ".");
@@ -1047,7 +1122,7 @@ function warPush(n) {
       const power = muster(n) * (0.94 + rnd() * 0.12);
       let defense = muster(foe) * (0.94 + rnd() * 0.12);
       const souls = (pop && pop[m.ty][m.tx]) || 0;
-      if (city) defense *= (city.rank === "city" ? 1.18 : 1.1) + Math.min(0.06, souls / 80000);
+      if (city) defense *= [1.04, 1.1, 1.2, 1.32, 1.45][tierAt(city.rank)] + Math.min(0.08, souls / 100000);
       if (seat) {
         defense *= 1.34;
         if (foe.gov === "Monarchy" || foe.gov === "Theocracy") defense *= 1.14;
@@ -1060,10 +1135,11 @@ function warPush(n) {
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
         for (const [px, py] of pocket) claim(px, py, n.id);
-        if (city && !seat) {
-          foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - (city.rank === "city" ? 9 : 4));
-          foe.stability -= city.rank === "city" ? 7 : 3;
-          chronicle(year, n.name + " sacks " + city.name + ". " + foe.name + " is thinner for it.");
+        if (city && !seat && tierAt(city.rank) >= 1) {
+          const tier = tierAt(city.rank);
+          foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - [0, 4, 9, 14, 18][tier]);
+          foe.stability -= [0, 3, 7, 11, 14][tier];
+          chronicle(year, n.name + " sacks the " + city.rank + " of " + city.name + ". " + foe.name + " is thinner for it.");
         } else foe.stability -= 0.55;
       } else {
         n.stability -= city ? 0.7 : 0.35;
@@ -1362,11 +1438,12 @@ function demography() {
     if (id < 0) continue;
     const n = byId(id);
     const seat = n && n.seat === c.id;
-    const rad = seat ? 6 : c.rank === "city" ? 5 : 3.6;
-    const pull = seat ? 0.18 : c.rank === "city" ? 0.14 : 0.1;
+    const tier = tierAt(c.rank);
+    const rad = [2.4, 3.6, 5, 6, 7][tier] + (seat ? 1 : 0);
+    const pull = [0.05, 0.1, 0.14, 0.16, 0.18][tier] + (seat ? 0.02 : 0);
     let moved = 0;
-    for (let y = Math.max(0, c.y - 6); y <= Math.min(ROWS - 1, c.y + 6); y++) {
-      for (let x = Math.max(0, c.x - 6); x <= Math.min(COLS - 1, c.x + 6); x++) {
+    for (let y = Math.max(0, c.y - 8); y <= Math.min(ROWS - 1, c.y + 8); y++) {
+      for (let x = Math.max(0, c.x - 8); x <= Math.min(COLS - 1, c.x + 8); x++) {
         if (grid[y][x] !== LAND || owner[y][x] !== id || (x === c.x && y === c.y)) continue;
         if (cities.some(o => o.x === x && o.y === y)) continue;
         const dist = Math.hypot(x - c.x, y - c.y);
@@ -1381,6 +1458,7 @@ function demography() {
     }
     pop[c.y][c.x] += moved;
   }
+  settleRanks();
 }
 
 function markCoast() {
@@ -1404,6 +1482,30 @@ function tint(hex, toward, p) {
   return "rgb(" + r + "," + g + "," + b + ")";
 }
 
+function dotRadius(c, cw, ch) {
+  const souls = (pop && pop[c.y] && pop[c.y][c.x]) || 0;
+  const size = [0.075, 0.11, 0.16, 0.22, 0.3][tierAt(c.rank)];
+  const grow = 0.75 + Math.min(0.6, souls / 14000);
+  return Math.max(1.15, Math.min(cw, ch) * size * grow);
+}
+function drawPlace(c, core, cw, ch) {
+  const rad = dotRadius(c, cw, ch);
+  const cx = (c.x + 0.5) * cw, cy = (c.y + 0.5) * ch;
+  const tier = tierAt(c.rank);
+  ctx.lineWidth = 1;
+  if (tier >= 3) {
+    ctx.beginPath(); ctx.arc(cx, cy, rad * 1.55, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(244,247,252,0.45)"; ctx.stroke();
+  }
+  if (tier >= 4) {
+    ctx.beginPath(); ctx.arc(cx, cy, rad * 1.95, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(244,247,252,0.28)"; ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fillStyle = "#f4f7fc"; ctx.fill();
+  if (core) {
+    ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.2, rad * 0.46), 0, Math.PI * 2); ctx.fillStyle = core; ctx.fill();
+  }
+}
 function render() {
   const cw = canvas.width / COLS, ch = canvas.height / ROWS;
   const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -1521,16 +1623,12 @@ function render() {
   for (const c of cities) {
     if (!owner[c.y] || owner[c.y][c.x] < 0) continue;
     if (nations.some(n => n.seat === c.id && n.pops > 0)) continue;
-    const cx = (c.x + 0.5) * cw, cy = (c.y + 0.5) * ch;
-    const rad = c.rank === "city" ? Math.max(1.7, Math.min(cw, ch) * 0.16) : Math.max(1.15, Math.min(cw, ch) * 0.1);
-    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fillStyle = "rgba(244,247,252,0.92)"; ctx.fill();
+    drawPlace(c, null, cw, ch);
   }
   for (const n of nations) {
-    if (!n.capital || !owner[n.capital.y] || owner[n.capital.y][n.capital.x] !== n.id) continue;
-    const cx = (n.capital.x + 0.5) * cw, cy = (n.capital.y + 0.5) * ch;
-    const r = Math.max(2.4, Math.min(cw, ch) * 0.28);
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = "#f4f7fc"; ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, cy, r * 0.48, 0, Math.PI * 2); ctx.fillStyle = n.color; ctx.fill();
+    const seat = cities.find(c => c.id === n.seat);
+    if (!seat || !owner[seat.y] || owner[seat.y][seat.x] !== n.id) continue;
+    drawPlace(seat, n.color, cw, ch);
   }
 }
 
@@ -1616,7 +1714,7 @@ function drawUI() {
         + row("Population", fmt(focus.people))
         + row("Provinces", focus.pops)
         + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
-        + row("Seat", (cities.find(c => c.id === focus.seat) || {}).name || "—")
+        + row("Seat", (() => { const s = cities.find(c => c.id === focus.seat); return s ? s.name + " · " + s.rank : "—"; })())
         + row("Cities", cities.filter(c => owner[c.y] && owner[c.y][c.x] === focus.id).length)
         + row("Largest faith", faithName(focus.creed) + " " + Math.round((focus.creedShare || 0) * 100) + "%")
         + '<div class="kicker sub">STATE</div>'
