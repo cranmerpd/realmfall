@@ -488,7 +488,12 @@ function found(x, y, name, color, why, gov, faithId) {
 function claim(x, y, id) {
   if (!prev) prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   if (owner[y][x] !== id) {
-    if (owner[y][x] >= 0 && id >= 0 && pop && pop[y][x]) pop[y][x] = Math.max(180, Math.round(pop[y][x] * 0.88));
+    if (owner[y][x] >= 0 && id >= 0 && pop && pop[y][x]) {
+      const city = cities.find(c => c.x === x && c.y === y);
+      const seat = city && nations.some(n => n.seat === city.id && n.capital && n.capital.x === x && n.capital.y === y);
+      const keep = !city ? 0.93 : seat ? 0.52 : city.rank === "city" ? 0.64 : 0.78;
+      pop[y][x] = Math.max(160, Math.round(pop[y][x] * keep));
+    }
     prev[y][x] = owner[y][x];
   }
   owner[y][x] = id;
@@ -622,7 +627,7 @@ function placeCity(x, y, name, rank) {
   }
   c = { id: nextCity++, name, x, y, rank: rank || "town" };
   cities.push(c);
-  if (pop && pop[y]) pop[y][x] = Math.max(pop[y][x] || 0, c.rank === "city" ? 4200 : 2800);
+  if (pop && pop[y] && rank === "city" && (pop[y][x] || 0) < 1800) pop[y][x] = 1800 + ri(500);
   return c;
 }
 
@@ -631,45 +636,97 @@ function citiesIn(cells) {
   return cities.filter(c => set.has(key(c.x, c.y)));
 }
 
+function siteKind(x, y) {
+  const onRiver = river && river[y][x] > 11;
+  if (onRiver && coast && coast[y][x]) return "mouth";
+  if (onRiver) return "river";
+  if (coast && coast[y][x]) return "coast";
+  return "inland";
+}
+
+function capacity(x, y) {
+  const id = owner[y][x];
+  const n = id >= 0 ? byId(id) : null;
+  const kind = siteKind(x, y);
+  let K = 1000;
+  if (kind === "river") K += 620;
+  if (kind === "mouth") K += 480;
+  if (kind === "coast") K += 140;
+  if (elev && elev[y][x] > 0.58) K -= 280;
+  const city = cities.find(c => c.x === x && c.y === y);
+  if (n) {
+    const R = rules(n.gov);
+    const d = n.capital ? hypot(x, y, n.capital) : 9;
+    if (d < 6) K += 180 * R.heart;
+    if (n.gov === "Oligarchy") K *= kind === "inland" ? 0.7 : kind === "mouth" || kind === "coast" ? 1.24 : 1.05;
+    if (n.gov === "Republic" && kind === "inland") K *= 0.82;
+    if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x] && belief[y][x][n.faith] < 0.34) K *= 0.76;
+    if ((n.legitimacy || 60) < 40) K *= 0.78;
+    if (n.pacts) K *= 1 + Math.min(2, n.pacts) * 0.05;
+    if (n.atWar.size) {
+      const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
+      K *= edge ? 0.58 : 0.9;
+    }
+  }
+  if (city) {
+    const seat = n && n.seat === city.id;
+    K = Math.max(K, city.rank === "city" ? (seat ? 12500 : 8400) : 4300);
+  }
+  return Math.max(380, Math.round(K));
+}
+
 function growCities() {
   if (!pop || !owner) return;
   for (const c of cities) {
     if (c.rank !== "town") continue;
-    if ((pop[c.y][c.x] || 0) < 4600) continue;
+    if ((pop[c.y][c.x] || 0) < 5600) continue;
     c.rank = "city";
     const realm = byId(owner[c.y][c.x]);
-    if (realm) chronicle(year, c.name + " is now a city of " + realm.name + ".");
+    if (realm) chronicle(year, c.name + " has outgrown a town. It draws on the country around it.");
   }
-  const open = [];
+  const founded = new Set();
+  const sites = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND || owner[y][x] < 0) continue;
     if (cities.some(c => c.x === x && c.y === y)) continue;
-    const souls = pop[y][x] || 0;
-    const onRiver = river && river[y][x] > 11;
-    const mouth = onRiver && coast[y][x];
-    if (!onRiver && !coast[y][x] && souls < 3400) continue;
-    const need = mouth ? 1600 : onRiver ? 1900 : coast[y][x] ? 2300 : 3400;
-    if (souls < need) continue;
-    open.push([x, y, souls + (mouth ? 3000 : onRiver ? 1400 : 0)]);
-  }
-  open.sort((a, b) => b[2] - a[2]);
-  for (const [x, y] of open) {
-    const onRiver = river && river[y][x] > 11;
-    const gap = onRiver ? 5 : 8;
-    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < gap)) continue;
     const realm = byId(owner[y][x]);
-    if (!realm) continue;
-    const owned = cities.filter(c => owner[c.y][c.x] === realm.id).length;
-    if (owned > Math.max(2, realm.pops / 32)) continue;
-    const town = placeCity(x, y, nameCity(), "town");
-    chronicle(year, town.name + " rises in " + realm.name + ".");
+    if (!realm || realm.atWar.size || founded.has(realm.id)) continue;
+    const kind = siteKind(x, y);
+    const d = realm.capital ? hypot(x, y, realm.capital) : 9;
+    if (kind === "inland" && (d > 5 || (pop[y][x] || 0) < 1500)) continue;
+    const gap = kind === "mouth" || kind === "river" ? 6 : 8;
+    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < gap)) continue;
+    let hinter = 0, surplus = 0, cells = 0;
+    for (let yy = y - 4; yy <= y + 4; yy++) for (let xx = x - 4; xx <= x + 4; xx++) {
+      if (yy < 0 || xx < 0 || yy >= ROWS || xx >= COLS || grid[yy][xx] !== LAND || owner[yy][xx] !== realm.id) continue;
+      if (Math.hypot(xx - x, yy - y) > 4) continue;
+      hinter += pop[yy][xx] || 0;
+      surplus += Math.max(0, (pop[yy][xx] || 0) - capacity(xx, yy) * 0.72);
+      cells++;
+    }
+    if (hinter < 7500 || surplus < 900) continue;
+    const score = (kind === "mouth" ? 6 : kind === "river" ? 4 : kind === "coast" ? 2.5 : 1) + surplus / 4000;
+    sites.push({ x, y, realm, kind, score });
+  }
+  sites.sort((a, b) => b.score - a.score);
+  for (const s of sites) {
+    if (founded.has(s.realm.id)) continue;
+    const owned = cities.filter(c => owner[c.y][c.x] === s.realm.id).length;
+    if (owned > Math.max(1, s.realm.pops / 40)) continue;
+    const town = placeCity(s.x, s.y, nameCity(), "town");
+    const why = s.kind === "mouth" ? "where the river meets the sea"
+      : s.kind === "river" ? "on the river, where the country can spare the people"
+      : s.kind === "coast" ? "on the coast, fed by the country behind it"
+      : "to market the country around the capital";
+    chronicle(year, town.name + " is chartered in " + s.realm.name + ", " + why + ".");
+    founded.add(s.realm.id);
   }
 }
 
 function relocateSeat(n, lost, cells) {
   const set = new Set(cells.map(([x, y]) => key(x, y)));
   const taker = lost ? byId(owner[lost.y][lost.x]) : null;
-  if (lost && pop[lost.y]) pop[lost.y][lost.x] = Math.max(400, Math.round((pop[lost.y][lost.x] || 800) * 0.66));
+  if (lost && pop[lost.y]) pop[lost.y][lost.x] = Math.max(160, pop[lost.y][lost.x] || 0);
   const shock = n.gov === "Dictatorship" ? 40 : n.gov === "Monarchy" || n.gov === "Theocracy" ? 36 : 28;
   n.legitimacy = Math.max(6, (n.legitimacy || 40) - shock);
   n.stability = Math.max(5, (n.stability || 30) - 24);
@@ -985,18 +1042,31 @@ function warPush(n) {
       const pocket = splitOff(foe.id, m.tx, m.ty);
       if (pocket.length > 8) continue;
       if (pocket.some(([x, y]) => foe.capital && x === foe.capital.x && y === foe.capital.y)) continue;
+      const city = cities.find(c => c.x === m.tx && c.y === m.ty);
+      const seat = foe.capital && m.tx === foe.capital.x && m.ty === foe.capital.y;
       const power = muster(n) * (0.94 + rnd() * 0.12);
       let defense = muster(foe) * (0.94 + rnd() * 0.12);
-      if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense *= 1.55;
-      else if (cities.some(c => c.x === m.tx && c.y === m.ty)) defense *= 1.16;
-      if (m.reclaim) defense *= 0.62;
-      if (m.coast) defense *= 0.92;
+      const souls = (pop && pop[m.ty][m.tx]) || 0;
+      if (city) defense *= (city.rank === "city" ? 1.18 : 1.1) + Math.min(0.06, souls / 80000);
+      if (seat) {
+        defense *= 1.34;
+        if (foe.gov === "Monarchy" || foe.gov === "Theocracy") defense *= 1.14;
+        if (foe.gov === "Dictatorship" && (foe.legitimacy || 0) > 55) defense *= 1.12;
+        if ((foe.legitimacy || 0) < 36) defense *= 0.74;
+      }
+      if (foe.gov === "Theocracy" && belief && belief[m.ty][m.tx]) defense *= 0.84 + belief[m.ty][m.tx][foe.faith] * 0.45;
+      if (city && m.coast && rules(foe.gov).trade > 0.7) defense *= 1.12;
+      if (m.reclaim) defense *= 0.7;
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
         for (const [px, py] of pocket) claim(px, py, n.id);
-        foe.stability -= 0.55;
+        if (city && !seat) {
+          foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - (city.rank === "city" ? 9 : 4));
+          foe.stability -= city.rank === "city" ? 7 : 3;
+          chronicle(year, n.name + " sacks " + city.name + ". " + foe.name + " is thinner for it.");
+        } else foe.stability -= 0.55;
       } else {
-        n.stability -= 0.35;
+        n.stability -= city ? 0.7 : 0.35;
       }
       moved = true;
       break;
@@ -1267,25 +1337,49 @@ function demography() {
   if (!pop) return;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND) continue;
-    let p = pop[y][x] || 600;
     const id = owner[y][x];
     const n = id >= 0 ? byId(id) : null;
-    let rate = 0.0008;
-    let cap = 1500;
-    if (n && n.capital) {
-      const d = hypot(x, y, n.capital);
-      const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] !== id);
-      if (d <= 2.2) { rate = 0.007; cap = 5200; }
-      else if (d <= 7) { rate = 0.0045; cap = 4200; }
-      else { rate = edge ? 0.0016 : 0.0028; cap = 3400; }
-      if (n.atWar.size) rate *= 0.4;
-      const R = rules(n.gov);
-      rate *= R.grow;
-      if ((n.legitimacy || 60) < 42) rate *= 0.78;
-      if (cities.some(c => c.x === x && c.y === y)) { rate *= 1.35; cap = Math.max(cap, 6800); }
+    const K = capacity(x, y);
+    let r = 0.008;
+    if (n) {
+      r *= rules(n.gov).grow;
+      const leg = n.legitimacy || 60;
+      if (leg > 72) r *= 1.12;
+      if (leg < 42) r *= 0.66;
+      if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x]) r *= 0.5 + (belief[y][x][n.faith] || 0);
+      if (n.gov === "Dictatorship" && n.atWar.size) r *= 0.7;
     }
-    if (p < cap) p = Math.min(cap, Math.round(p * (1 + rate)));
-    pop[y][x] = Math.max(180, p);
+    let p = pop[y][x] || 400;
+    p += p * r * (1 - p / K);
+    if (n && n.atWar.size) {
+      const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
+      p *= edge ? 0.972 : 0.994;
+    }
+    pop[y][x] = Math.max(120, Math.round(p));
+  }
+  for (const c of cities) {
+    const id = owner[c.y][c.x];
+    if (id < 0) continue;
+    const n = byId(id);
+    const seat = n && n.seat === c.id;
+    const rad = seat ? 6 : c.rank === "city" ? 5 : 3.6;
+    const pull = seat ? 0.18 : c.rank === "city" ? 0.14 : 0.1;
+    let moved = 0;
+    for (let y = Math.max(0, c.y - 6); y <= Math.min(ROWS - 1, c.y + 6); y++) {
+      for (let x = Math.max(0, c.x - 6); x <= Math.min(COLS - 1, c.x + 6); x++) {
+        if (grid[y][x] !== LAND || owner[y][x] !== id || (x === c.x && y === c.y)) continue;
+        if (cities.some(o => o.x === x && o.y === y)) continue;
+        const dist = Math.hypot(x - c.x, y - c.y);
+        if (dist > rad) continue;
+        const surplus = (pop[y][x] || 0) - capacity(x, y);
+        if (surplus < 40) continue;
+        const take = Math.min(pop[y][x] - 160, Math.round(surplus * pull * (1 - dist / rad)));
+        if (take <= 0) continue;
+        pop[y][x] -= take;
+        moved += take;
+      }
+    }
+    pop[c.y][c.x] += moved;
   }
 }
 
