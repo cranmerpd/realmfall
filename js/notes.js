@@ -1,5 +1,15 @@
-const VERSION = "0.26";
+const VERSION = "0.27";
 const HISTORY = [
+  {
+    v: "0.27",
+    date: "9 Oct 2026",
+    items: [
+      "A realm does not learn from its neighbors, and a new realm does not inherit an age. The next age is bought with coin, and only if that resource is in its own land.",
+      "A republic pays less. A dictatorship pays less for metal and more for timber. A theocracy pays more for oil and silicon.",
+      "A hungry crown, a failed cult, or a dictatorship the country will not feed can be overthrown. The usual result is a democratic republic. A republic no longer votes itself away at the first lean year.",
+      "A war takes a province only when an army, a wing, or a warship is there. The men in that fight die, and more of them die in a cold winter."
+    ]
+  },
   {
     v: "0.26",
     date: "9 Oct 2026",

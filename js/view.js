@@ -492,7 +492,8 @@ function realmRule(n) {
     : "";
   return row("Government", govLabel(n.gov))
     + cult
-    + row("Age", (AGES[n.age || 0] || "Primitive") + ((n.age || 0) < 4 ? " · learning " + AGES[(n.age || 0) + 1].toLowerCase() : ""))
+    + row("Age", (AGES[n.age || 0] || "Primitive"))
+    + ((n.age || 0) < 4 ? row("Next", nextArt(n)) : "")
     + row("Legitimacy", Math.round(n.legitimacy || 0))
     + meter(n.legitimacy || 0)
     + row("Stability", Math.round(n.stability || 0))
@@ -513,9 +514,18 @@ function realmWater(n) {
     + bargeLines(n)
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
-    + '<p class="quiet-line">At peace a warship patrols this coast. In a war it sails for the enemy coast. A barge carries surplus grain. A merchant sells grain, timber, or ore, and is paid on arrival.</p>'
+    + '<p class="quiet-line">A province changes hands only when an army, a wing, or a warship is there. At peace a warship patrols this coast. In a war it sails for the enemy coast.</p>'
     + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
+}
+
+function nextArt(n) {
+  const next = (n.age || 0) + 1;
+  const kind = [0, 1, 2, 3, 4][next];
+  const name = AGES[next] || "";
+  if (typeof holdsKind === "function" && !holdsKind(n, kind)) return name + " · none of it in the realm";
+  const price = typeof agePrice === "function" ? agePrice(n, next) : 0;
+  return name + " · " + price + " coin";
 }
 
 function armyLine(n) {

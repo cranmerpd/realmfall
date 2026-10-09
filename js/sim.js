@@ -53,15 +53,14 @@ function found(x, y, name, color, why, gov, faithId, parent) {
   const id = nextId++;
   const f = faithId == null ? topFaith(x, y) : faithId;
   const g = gov || pickGov(x, y);
-  const age = parent ? (parent.age || 0) : knowledgeFloor(x, y);
   const n = {
     id, name, color, born: year || 1000, stability: 70, legitimacy: 68, pops: 1,
     capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
     faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {},
     sea: coast && coast[y] && coast[y][x] ? 0.14 : 0,
-    treasury: 220, timber: age >= 1 ? 40 : 0, ore: age >= 2 ? 16 : 0, oil: age >= 3 ? 8 : 0, silicon: age >= 4 ? 4 : 0,
-    age, learn: 0, taxTake: 0, spent: 0, lastTrade: "",
+    treasury: 220, timber: 0, ore: 0, oil: 0, silicon: 0,
+    age: 0, learn: 0, taxTake: 0, spent: 0, lastTrade: "",
     nextVote: g === "Republic" ? (year || 1000) + 28 : 0
   };
   nations.push(n);
@@ -71,7 +70,6 @@ function found(x, y, name, color, why, gov, faithId, parent) {
   if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
   const crown = name + " is founded as " + govArticle(g) + (g === "Theocracy" ? ". The cult is " + faithName(f) + ", which the capital's people already follow." : ".");
   chronicle(year || 1000, why || crown);
-  if (age >= 1) chronicle(year || 1000, n.name + " already knows the " + AGES[age].toLowerCase() + " arts. Common knowledge does not start over.");
   return n;
 }
 
@@ -158,14 +156,15 @@ function declareWar(n, foe, why) {
   return true;
 }
 
-function knowledgeFloor(x, y) {
-  let best = 0;
-  for (const n of nations) {
-    if (!n.capital) continue;
-    if (hypot(x, y, n.capital) > 24) continue;
-    best = Math.max(best, n.age || 0);
-  }
-  return Math.max(0, best - 2);
+function agePrice(n, next) {
+  const base = [0, 420, 760, 1200, 1900][next] || 0;
+  const g = n.gov;
+  let mult = 1;
+  if (g === "Republic") mult = 0.7;
+  else if (g === "Oligarchy") mult = next === 1 || next === 3 ? 0.75 : 1.2;
+  else if (g === "Dictatorship") mult = next >= 2 ? 0.85 : 1.3;
+  else if (g === "Theocracy") mult = next >= 3 ? 1.5 : 1.15;
+  return Math.round(base * mult);
 }
 
 function holdsKind(n, kind) {
@@ -179,36 +178,20 @@ function study(n) {
   if (age >= 4) return;
   const next = age + 1;
   const kind = [0, 1, 2, 3, 4][next];
-  let taught = 0;
-  for (const other of nations) {
-    if (other.id === n.id || (other.age || 0) < next || !other.capital || !n.capital) continue;
-    const beside = borderCounts(n)[other.id] > 0 || hypot(n.capital.x, n.capital.y, other.capital) < 26;
-    if (beside) taught = Math.max(taught, other.age || 0);
-  }
-  let traded = false;
-  if (n.pact) for (const id of Object.keys(n.pact)) {
-    if (n.pact[id] <= year) continue;
-    const other = byId(+id);
-    if (other && holdsKind(other, kind)) traded = true;
-  }
-  const has = holdsKind(n, kind);
-  if (!has && !traded && taught < next) return;
-  let gain = 2;
-  if (has) gain += 7;
-  if (traded) gain += 4;
-  if (taught >= next) gain += 5 + Math.min(8, (taught - age) * 2);
-  if ((n.hungry || 0) > 0.08) gain *= 0.45;
-  if (n.atWar.size) gain *= 0.65;
-  n.learn = (n.learn || 0) + gain;
-  if (n.learn < [0, 70, 100, 140, 190][next]) return;
+  n.learnPrice = 0;
+  if (!holdsKind(n, kind)) return;
+  const price = agePrice(n, next);
+  n.learnPrice = price;
+  const reserve = n.atWar.size ? 180 : 60;
+  if ((n.hungry || 0) > 0.12 || (n.treasury || 0) < price + reserve) return;
+  n.treasury -= price;
   n.age = next;
-  n.learn = 0;
   const line = [
     "",
-    "learns to cut timber. Slow ships and barges can now be built.",
-    "learns to smelt ore. Heavier arms, and hulls that make better way.",
-    "learns to draw oil. The ships move under power.",
-    "learns to work silicon. A wing can fly, and a missile can be sent."
+    "pays " + price + " coin and learns to cut timber.",
+    "pays " + price + " coin and learns to smelt ore.",
+    "pays " + price + " coin and learns to draw oil.",
+    "pays " + price + " coin and learns to work silicon."
   ][next];
   chronicle(year, n.name + " " + line);
 }
@@ -376,6 +359,7 @@ function step() {
       measure(n);
       if (!n.atWar.size) grow(n);
       study(n);
+      considerCoup(n);
     }
     for (const n of nations.slice()) {
       if (!nations.includes(n) || !n.pops) continue;
@@ -1105,6 +1089,8 @@ function warPush(n) {
       if (pocket.some(([x, y]) => foe.capital && x === foe.capital.x && y === foe.capital.y)) continue;
       const city = cities.find(c => c.x === m.tx && c.y === m.ty);
       const seat = foe.capital && m.tx === foe.capital.x && m.ty === foe.capital.y;
+      const unit = canAssault(n, m.tx, m.ty);
+      if (!unit) continue;
       let power = muster(n) * (0.94 + rnd() * 0.12) * hostFactor(n, m.tx, m.ty) * ((n.treasury || 0) < 40 ? 0.72 : 1) * ((n.hungry || 0) > 0.1 ? 0.84 : 1);
       let defense = muster(foe) * (0.94 + rnd() * 0.12) * hostFactor(foe, m.tx, m.ty) * ((foe.treasury || 0) < 40 ? 0.8 : 1);
       const souls = (pop && pop[m.ty][m.tx]) || 0;
@@ -1122,6 +1108,12 @@ function warPush(n) {
       }
       if (city && m.coast && rules(foe.gov).trade > 0.7) defense *= 1.12;
       if (m.reclaim) defense *= 0.7;
+      if (unit.kind === "host") {
+        let bite = unit.role === "levy" ? 0.09 : unit.role === "rifles" || unit.role === "arms" ? 0.045 : 0.065;
+        if (season === 3 && coldAt(m.tx, m.ty) > 0.42) bite += 0.09;
+        if (city) bite += 0.04;
+        unit.men = Math.round((unit.men || 0) * (1 - bite));
+      }
       if ((n.age || 0) >= 4 && (n.silicon || 0) >= 5 && n.missileYear !== year) {
         power *= 1.32;
         n.silicon -= 5;
@@ -1268,9 +1260,9 @@ function factions(n) {
   const broke = (n.treasury || 0) < 40 ? 0.7 : 0;
   const traded = n.lastTrade ? 0.4 : 0;
   return [
-    { gov: "Republic", name: "merchants", w: Math.max(0.15, 1.1 + coastShare * 1.6 + rich + traded + (n.gov === "Republic" ? 0.7 : 0) - hungry * 2.4 - broke) },
-    { gov: "Oligarchy", name: "ports", w: Math.max(0, 0.15 + coastShare * 2 + (n.sea || 0) * 0.8 + traded * 0.5) },
-    { gov: "Monarchy", name: "country", w: 0.35 + hungry * 2.4 + broke + (1 - coastShare) * 0.7 },
+    { gov: "Republic", name: "merchants", w: Math.max(0.55, 1.7 + coastShare * 1.2 + rich * 0.6 + traded * 0.3 + (n.gov === "Republic" ? 1.2 : 0) - hungry * 0.8) },
+    { gov: "Oligarchy", name: "ports", w: Math.max(0, 0.1 + coastShare * 1.6 + (n.sea || 0) * 0.5) },
+    { gov: "Monarchy", name: "country", w: 0.3 + hungry * 0.9 + broke * 0.4 + (1 - coastShare) * 0.45 },
     { gov: "Theocracy", name: "cult", w: cult > 0.5 ? (cult - 0.35) * 3.2 : 0 },
     { gov: "Dictatorship", name: "hard hand", w: unrest * 2.4 + (n.atWar.size ? 0.7 : 0) + ((n.legitimacy || 50) < 32 ? 0.8 : 0) + (hungry > 0.06 && taxRate(n) > 0.25 ? 0.5 : 0) }
   ].filter(f => f.w > 0.05);
@@ -1297,9 +1289,10 @@ function considerVote(n) {
   let pick = list[0];
   for (const f of list) { roll -= f.w; if (roll <= 0) { pick = f; break; } }
   n.parties = list.sort((a, b) => b.w - a.w);
-  if (!pick || pick.gov === "Republic") {
-    if ((n.hungry || 0) > 0.06 || (n.unrest || 0) > 20) chronicle(year, n.name + " votes. The merchants keep the republic.");
-    n.unrest = Math.max(0, (n.unrest || 0) - 6);
+  const merchants = list.find(f => f.gov === "Republic");
+  if (!pick || pick.gov === "Republic" || (merchants && merchants.w >= pick.w * 0.8)) {
+    if ((n.hungry || 0) > 0.1 || (n.unrest || 0) > 28) chronicle(year, n.name + " votes. The republic holds.");
+    n.unrest = Math.max(0, (n.unrest || 0) - 4);
     return;
   }
   n.gov = pick.gov;
@@ -1307,6 +1300,49 @@ function considerVote(n) {
   n.stability = Math.max(8, (n.stability || 30) - 10);
   n.quietUntil = Math.max(n.quietUntil || 0, year + 30);
   chronicle(year, n.name + " votes. The " + pick.name + " carry it. The republic is now " + govArticle(pick.gov) + ".");
+}
+
+function considerCoup(n) {
+  if (!n || n.gov === "Republic" || n.atWar.size || year < (n.quietUntil || 0) || n.pops < 8) return;
+  const hungry = n.hungry || 0;
+  const legit = n.legitimacy || 50;
+  const unrest = n.unrest || 0;
+  if (legit > 40 && unrest < 46 && hungry < 0.09) return;
+  if (unrest < 30 && hungry < 0.08) return;
+  const coastShare = n.pops ? (n.coasts || 0) / n.pops : 0;
+  let next = null, why = "";
+  if (n.gov === "Dictatorship" && legit < 38 && (hungry > 0.07 || unrest > 48)) {
+    next = "Republic";
+    why = "The dictatorship is thrown out. A democratic republic is declared.";
+  } else if (n.gov === "Theocracy" && (n.cultShare || 0) < 0.36 && unrest > 34) {
+    next = coastShare > 0.22 ? "Republic" : "Monarchy";
+    why = next === "Republic"
+      ? "The cult cannot hold the capital. A democratic republic is declared."
+      : "The cult cannot hold the capital. A crown is set in its place.";
+  } else if (n.gov === "Oligarchy" && hungry > 0.07 && coastShare < 0.18) {
+    next = "Republic";
+    why = "The inland country throws out the ports. A democratic republic is declared.";
+  } else if (n.gov === "Monarchy" && hungry > 0.09 && legit < 34) {
+    next = "Republic";
+    why = "The crown cannot feed the country. A democratic republic is declared.";
+  } else if (n.gov === "Monarchy" && unrest > 62 && legit < 28) {
+    next = "Dictatorship";
+    why = "The crown falls. A dictatorship takes the capital.";
+  } else if ((n.cultShare || 0) > 0.72 && legit < 34 && hungry > 0.05) {
+    next = "Theocracy";
+    why = "The cult takes the capital from the crown.";
+  } else if (n.gov === "Monarchy" && coastShare > 0.34 && (n.treasury || 0) < 30 && legit < 38) {
+    next = "Oligarchy";
+    why = "The ports buy out the crown. An oligarchy keeps the coasts.";
+  }
+  if (!next || next === n.gov) return;
+  n.gov = next;
+  n.legitimacy = next === "Republic" ? 52 : 38;
+  n.stability = Math.max(14, (n.stability || 30) - 6);
+  n.unrest = Math.max(0, unrest * 0.3);
+  n.quietUntil = year + 36;
+  if (next === "Republic") n.nextVote = year + 22;
+  chronicle(year, n.name + ". " + why);
 }
 
 function portOf(n) {
@@ -1497,6 +1533,19 @@ function hullWord(n) {
   if (age >= 2) return "Carrack";
   if (age >= 1) return "Slow sail";
   return "None";
+}
+
+function canAssault(n, x, y) {
+  if (!units) return null;
+  let ship = null, wing = null, army = null;
+  for (const u of units) {
+    if (u.owner !== n.id) continue;
+    const d = Math.hypot(u.x - x, u.y - y);
+    if (u.kind === "host" && d <= 3.2 && (!army || d < army.d)) army = { u, d };
+    else if (u.kind === "air" && d <= 7 && !wing) wing = u;
+    else if (u.kind === "warship" && coast && coast[y] && coast[y][x] && d <= 6 && !ship) ship = u;
+  }
+  return army ? army.u : wing || ship;
 }
 
 function hostFactor(n, x, y) {

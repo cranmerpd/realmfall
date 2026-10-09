@@ -338,12 +338,11 @@ function traceRivers() {
 function pickGov(x, y) {
   const shore = coast && coast[y] && coast[y][x];
   const r = rnd();
-  if (r < 0.06) return "Theocracy";
-  if (r < 0.22) return "Dictatorship";
-  if (shore && r < 0.46) return "Oligarchy";
-  if (shore && r < 0.76) return "Republic";
-  if (!shore && r < 0.4) return "Republic";
-  if (!shore && r < 0.52) return "Oligarchy";
+  if (r < 0.05) return "Theocracy";
+  if (r < 0.16) return "Dictatorship";
+  if (shore && r < 0.34) return "Oligarchy";
+  if (r < 0.62) return "Republic";
+  if (shore && r < 0.74) return "Oligarchy";
   return "Monarchy";
 }
 
