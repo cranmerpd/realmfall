@@ -1,5 +1,15 @@
-const VERSION = "0.17";
+const VERSION = "0.18";
 const HISTORY = [
+  {
+    v: "0.18",
+    date: "9 Oct 2026",
+    items: [
+      "Each realm has a treasury. Tax is a share of timber, ore, and the grain that reaches the ports. The rate depends on the government.",
+      "Prosperity now includes the treasury and the stocks. A broke realm loses legitimacy, cannot raise an army, and cannot keep a hull at sea.",
+      "A merchant sells grain, timber, or ore. The buyer pays coin, and sometimes sends the other good home.",
+      "Goods on the map shows timber and ore. A neighbor who has what you lack can be a reason for war."
+    ]
+  },
   {
     v: "0.17",
     date: "9 Oct 2026",

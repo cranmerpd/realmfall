@@ -150,6 +150,7 @@ function render() {
       } else if (id >= 0) {
         const base = byId(id)?.color || "#888888";
         fill = tint(base, "#ffffff", Math.max(0, Math.min(0.1, ((pop && pop[y][x]) || 1000) / 36000)));
+        if (mapMode === "goods") fill = tint(fill, "#10140e", 0.34);
       }
       ctx.fillStyle = fill;
       ctx.fillRect(x * cw, y * ch, Math.ceil(cw) + 0.5, Math.ceil(ch) + 0.5);
@@ -222,6 +223,7 @@ function render() {
     }
   }
   ctx.stroke();
+  drawGoods(cw, ch);
   drawUnits(cw, ch);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -250,6 +252,29 @@ function render() {
   }
 }
 
+function drawGoods(cw, ch) {
+  if (mapMode !== "goods" || !resource) return;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const g = resource[y][x];
+    if (!g) continue;
+    const inset = g === 1 ? 0.18 : 0.3;
+    ctx.fillStyle = g === 1 ? "rgba(126,168,92,0.95)" : "rgba(196,150,88,0.96)";
+    ctx.fillRect((x + inset) * cw, (y + inset) * ch, Math.max(1, cw * (1 - inset * 2)), Math.max(1, ch * (1 - inset * 2)));
+  }
+  ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(8,10,14,0.72)";
+  ctx.fillRect(12, canvas.height - 36, 132, 22);
+  ctx.fillStyle = "#7ea85c";
+  ctx.fillRect(18, canvas.height - 29, 8, 8);
+  ctx.fillStyle = "#c49658";
+  ctx.fillRect(78, canvas.height - 29, 8, 8);
+  ctx.fillStyle = "#f4f7fc";
+  ctx.fillText("Timber", 30, canvas.height - 25);
+  ctx.fillText("Ore", 90, canvas.height - 25);
+}
+
 function fmt(n) {
   n = Math.round(n || 0);
   if (n >= 1000000) return (n / 1000000).toFixed(2) + "m";
@@ -274,7 +299,7 @@ function faithBar(shares, total) {
   return html + "</div>";
 }
 function sheetNav() {
-  return '<div class="sheets">' + [["brief", "Brief"], ["country", "Country"], ["rule", "Rule"], ["water", "Water"]].map(([id, label]) =>
+  return '<div class="sheets">' + [["brief", "Brief"], ["country", "Country"], ["rule", "Rule"], ["coin", "Coin"], ["water", "Water"]].map(([id, label]) =>
     '<button type="button" data-sheet="' + id + '"' + (sheet === id ? ' class="on"' : "") + ">" + label + "</button>").join("") + "</div>";
 }
 function bindPanel() {
@@ -306,8 +331,11 @@ function cityLines(n) {
 }
 function cogLines(n) {
   const list = (units || []).filter(u => u.kind === "cog" && u.owner === n.id);
-  if (!list.length) return '<p class="quiet-line">No merchant is sailing. One sails when grain is waiting and there is a colony or a trade partner across the water.</p>';
-  return list.map(u => '<p class="quiet-line">Merchant ship to ' + (u.destName || "a port") + (u.cargo > 0 ? ", grain aboard" : ", heading home") + '.</p>').join("");
+  if (!list.length) return '<p class="quiet-line">No merchant is sailing. One sails when there is grain, timber, or ore to sell to a colony or a partner.</p>';
+  return list.map(u => {
+    const way = u.cargo > 0 ? (u.good || "grain") + " to " : (u.backGood ? u.backGood + " home from " : "home from ");
+    return '<p class="quiet-line">Merchant · ' + way + (u.destName || "a port") + '.</p>';
+  }).join("");
 }
 function bargeLines(n) {
   const list = (units || []).filter(u => u.kind === "barge" && u.owner === n.id);
@@ -348,6 +376,24 @@ function realmCountry(n) {
     + row("Seat", seat ? seat.name : "—")
     + cityLines(n);
 }
+function realmCoin(n) {
+  const rate = Math.round(taxRate(n) * 100);
+  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard, and pays the army with it. Hungry people resent the levy."
+    : n.gov === "Republic" ? "A republic taxes lightly. Prosperity is the country itself, not the treasury."
+    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly and takes its coin from the ports."
+    : n.gov === "Theocracy" ? "A theocracy takes a tithe. It sits worse where the cult is not the faith of the people."
+    : "A monarchy taxes the produce and is judged by whether the treasury can still pay.";
+  return row("Treasury", fmt(n.treasury))
+    + row("Tax", rate + "% · " + fmt(n.taxTake) + " this year")
+    + row("Spent on arms", fmt(n.spent))
+    + row("Prosperity", fmt(n.wealth))
+    + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : ""))
+    + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : ""))
+    + row("Grain at the ports", fmt(n.grain))
+    + row("Last trade", n.lastTrade || "None")
+    + '<p class="quiet-line">' + why + '</p>';
+}
+
 function realmRule(n) {
   return row("Government", govLabel(n.gov))
     + row("Legitimacy", Math.round(n.legitimacy || 0))
@@ -369,7 +415,7 @@ function realmWater(n) {
     + bargeLines(n)
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
-    + '<p class="quiet-line">At peace a warship patrols this coast. In a war it sails for the enemy coast. A barge carries surplus downriver and stops at a border unless there is a pact. A merchant crosses the sea to a colony or a partner.</p>'
+    + '<p class="quiet-line">At peace a warship patrols this coast. In a war it sails for the enemy coast. A barge carries surplus grain. A merchant sells grain, timber, or ore, and is paid on arrival.</p>'
     + '<div class="kicker">BY SEA</div>'
     + cogLines(n);
 }
@@ -455,7 +501,7 @@ function drawUI() {
     panel.innerHTML = focus
       ? '<h2>' + focus.name + '</h2><p id="subtitle">' + govLabel(focus.gov) + (foe ? " · at war" : "") + '</p><p id="blurb">' + situation(focus) + '</p>'
         + sheetNav()
-        + (sheet === "country" ? realmCountry(focus) : sheet === "rule" ? realmRule(focus) : sheet === "water" ? realmWater(focus) : realmBrief(focus, foe))
+        + (sheet === "country" ? realmCountry(focus) : sheet === "rule" ? realmRule(focus) : sheet === "coin" ? realmCoin(focus) : sheet === "water" ? realmWater(focus) : realmBrief(focus, foe))
       : '<h2>The world</h2><p id="blurb">Pick a realm on the map, or open World.</p>'
         + row("Continents", continents || 0)
         + row("Realms", nations.length)
@@ -491,7 +537,8 @@ canvas.addEventListener("mousemove", e => {
         + "  ·  " + who;
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
-      label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls;
+      label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
+        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : "");
     } else label = "Unclaimed  ·  " + souls;
   }
   const here = (units || []).filter(u => u.x === x && u.y === y);
@@ -500,7 +547,7 @@ canvas.addEventListener("mousemove", e => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
       if (u.kind === "barge") return "Barge of " + name + " · grain to " + (u.destName || "a city");
-      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.cargo > 0 ? "grain to " : "home from ") + (u.destName || "a port");
+      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.cargo > 0 ? (u.good || "grain") + " to " : "home from ") + (u.destName || "a port");
       if (u.kind === "warship") return "Warship of " + name + (u.mission ? " · " + (u.mode === "war" ? "sailing to " : u.mode === "return" ? "returning to " : "") + u.mission : " · patrolling the coast");
       return "Army of " + name + " · " + fmt(u.men);
     }).join("  ·  ");

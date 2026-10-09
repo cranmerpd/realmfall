@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18 — 9 Oct 2026
+
+- Each realm has a treasury. Tax is a share of timber, ore, and the grain that reaches the ports. The rate depends on the government.
+- Prosperity now includes the treasury and the stocks. A broke realm loses legitimacy, cannot raise an army, and cannot keep a hull at sea.
+- A merchant sells grain, timber, or ore. The buyer pays coin, and sometimes sends the other good home.
+- Goods on the map shows timber and ore. A neighbor who has what you lack can be a reason for war.
+
 ## 0.17 — 9 Oct 2026
 
 - A warship patrols its own coast in peace. In a war it crosses the ocean to the enemy coast, then comes home when the war ends.

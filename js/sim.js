@@ -5,6 +5,7 @@ function generate() {
   prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   layContinents();
   markCoast();
+  placeResources();
   seedFaith();
   seedPop();
   nations = [];
@@ -56,6 +57,7 @@ function found(x, y, name, color, why, gov, faithId) {
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
     faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {},
     sea: coast && coast[y] && coast[y][x] ? 0.14 : 0,
+    treasury: 220, timber: 30, ore: 12, taxTake: 0, spent: 0, lastTrade: "",
     nextVote: g === "Republic" ? (year || 1000) + 28 : 0
   };
   nations.push(n);
@@ -195,6 +197,7 @@ function step() {
   climate();
   demography();
   feed();
+  extractLevy();
   immigrate();
   culture();
   growCities();
@@ -419,6 +422,45 @@ function holdSeat(n) {
 
 function settleCapital(n) { holdSeat(n); }
 
+function taxRate(n) {
+  if (!n) return 0.16;
+  if (n.gov === "Dictatorship") return 0.34;
+  if (n.gov === "Monarchy") return 0.2;
+  if (n.gov === "Theocracy") return 0.16;
+  if (n.gov === "Oligarchy") return 0.12;
+  return 0.1;
+}
+
+function extractLevy() {
+  for (const n of nations) { n.cutTimber = 0; n.dugOre = 0; n.taxTake = 0; }
+  if (resource) {
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      const kind = resource[y][x];
+      if (!kind || grid[y][x] !== LAND || owner[y][x] < 0) continue;
+      const n = byId(owner[y][x]);
+      const souls = (pop[y] && pop[y][x]) || 0;
+      if (!n || souls < 280) continue;
+      let work = Math.min(1, souls / 2000);
+      if (n.parched && basin && basin[y][x] && kind === 1) work *= 0.5;
+      const front = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== n.id);
+      if (front) work *= 0.55;
+      if (kind === 1) { const cut = 7 * work; n.timber = (n.timber || 0) + cut; n.cutTimber += cut; }
+      else { const dug = 4.5 * work; n.ore = (n.ore || 0) + dug; n.dugOre += dug; }
+    }
+  }
+  for (const n of nations) {
+    n.timber = Math.min(5000, n.timber || 0);
+    n.ore = Math.min(3500, n.ore || 0);
+    const duty = (n.grain || 0) / (n.gov === "Oligarchy" || n.gov === "Republic" ? 50 : 95);
+    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + duty;
+    n.taxTake = Math.round(base * taxRate(n));
+    n.treasury = Math.min(12000, (n.treasury || 0) + n.taxTake);
+    if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + ((n.hungry || 0) > 0.06 ? 0.9 : 0.15);
+    else if (n.gov === "Theocracy" && (n.cultShare || 0) < 0.45) n.unrest = (n.unrest || 0) + 0.4;
+    else if (n.gov === "Republic") n.unrest = Math.max(0, (n.unrest || 0) - 0.15);
+  }
+}
+
 function measure(n) {
   const cells = cellsOf(n.id);
   n.pops = cells.length;
@@ -457,6 +499,9 @@ function measure(n) {
   n.pacts = pacts;
   wealth *= 1 + pacts * 0.07;
   wealth += (n.grain || 0) / 420;
+  wealth += Math.min(90, (n.treasury || 0) / 35);
+  wealth += Math.min(36, (n.timber || 0) / 35);
+  wealth += Math.min(36, (n.ore || 0) / 18);
   if ((n.hungry || 0) > 0.04) wealth *= 1 - Math.min(0.45, n.hungry);
   n.wealth = Math.round(wealth);
   n.avg = sum / cells.length;
@@ -481,6 +526,8 @@ function measure(n) {
   else if (n.gov === "Dictatorship") target = 70 - Math.min(28, warYears * 1.1) - (n.atWar.size ? 8 : 0);
   else if (n.gov === "Theocracy") target = 32 + n.cultShare * 62;
   if ((n.hungry || 0) > 0.06) target -= n.hungry * (n.gov === "Republic" ? 40 : n.gov === "Oligarchy" ? 16 : 26);
+  if ((n.treasury || 0) < 40) target -= n.gov === "Republic" ? 3 : 10;
+  else if ((n.treasury || 0) > 600 && (n.gov === "Monarchy" || n.gov === "Dictatorship")) target += 6;
   target = Math.max(12, Math.min(94, target));
   n.legitimacy = (n.legitimacy == null ? 68 : n.legitimacy) + (target - n.legitimacy) * 0.08;
   n.stability += (n.legitimacy - n.stability) * 0.06;
@@ -763,6 +810,8 @@ function considerWar(n) {
     if (R.trade > 0.7 && (other.wealth || 0) > (n.wealth || 0) * 1.1 && (other.coasts || 0) > (n.coasts || 0)) {
       reasons.push([7 + 6 * R.trade, "to take its ports and trade"]);
     }
+    if ((n.ore || 0) < 24 && (other.ore || 0) > 70 && border >= 6) reasons.push([9 + 4 * R.bully, "to take the ore"]);
+    else if ((n.timber || 0) < 36 && (other.timber || 0) > 110 && border >= 6) reasons.push([8 + 3 * R.bully, "to take the timber"]);
     const theirs = other.people ? ((other.believers && other.believers[n.faith]) || 0) / other.people : 1;
     if (R.zeal && (n.cultShare || 0) > 0.6 && (n.homo || 0) > 0.55 && theirs < 0.22 && border >= 8) {
       reasons.push([5, "where its cult has no hold"]);
@@ -853,6 +902,9 @@ function warPush(n) {
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
         for (const [px, py] of pocket) claim(px, py, n.id);
+        const dug = resource && resource[m.ty] && resource[m.ty][m.tx];
+        if (dug === 2) chronicle(year, n.name + " takes ore country from " + foe.name + ".");
+        else if (dug === 1 && city) chronicle(year, n.name + " takes the timber around " + city.name + ".");
         if (city && !seat && tierAt(city.rank) >= 1) {
           const tier = tierAt(city.rank);
           foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - [0, 4, 9, 14, 18][tier]);
@@ -945,6 +997,8 @@ function learnSea(n) {
     const pace = rules(n.gov).sea / 1.3;
     let gain = 0.0032 * pace;
     if ((n.grain || 0) > 1600) gain += 0.0022;
+    if ((n.timber || 0) > 90) gain += 0.0018;
+    if ((n.treasury || 0) < 30) gain -= 0.004;
     if ((n.hungry || 0) > 0.08 || n.parched) gain = -0.01;
     n.sea = Math.max(0, Math.min(1, (n.sea || 0) + gain));
   }
@@ -1159,13 +1213,17 @@ function hostFactor(n, x, y) {
     if (u.kind !== "host" || u.owner !== n.id) continue;
     const d = Math.hypot(u.x - x, u.y - y);
     if (d > 4) continue;
-    const strength = (0.72 + Math.min(0.5, (u.men || 200) / 1400)) * (u.fed == null || u.fed > 0.7 ? 1 : 0.75);
+    const strength = (0.72 + Math.min(0.5, (u.men || 200) / 1400)) * (u.fed == null || u.fed > 0.7 ? 1 : 0.75) * (u.armed == null ? 1 : u.armed);
     if (strength > best) best = strength;
   }
   return best > 0 ? 0.55 + best : 0.62;
 }
 
 function raiseHost(n) {
+  if ((n.treasury || 0) < 50) {
+    if ((year + n.id) % 10 === 0) chronicle(year, n.name + " cannot raise an army. The treasury will not bear it.");
+    return false;
+  }
   const foeId = n.atWar && n.atWar.size ? [...n.atWar][0] : -1;
   let best = null, bestS = -1;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
@@ -1181,8 +1239,12 @@ function raiseHost(n) {
   if (!best) return false;
   const men = Math.min(700, Math.round(best[2] * 0.12));
   if (men < 70) return false;
+  const armed = (n.ore || 0) >= 8 ? 1 : 0.82;
+  if (armed === 1) n.ore -= 8;
+  if ((n.timber || 0) >= 4) n.timber -= 4;
+  n.treasury -= 50;
   pop[best[1]][best[0]] -= men;
-  units.push({ id: nextUnit++, kind: "host", owner: n.id, x: best[0], y: best[1], men, fed: 1, cargo: 0 });
+  units.push({ id: nextUnit++, kind: "host", owner: n.id, x: best[0], y: best[1], men, fed: 1, cargo: 0, armed, paid: true });
   return true;
 }
 
@@ -1302,8 +1364,64 @@ function colonyPort(n) {
   return null;
 }
 
+function loadOutbound(n, destRealm) {
+  const other = destRealm != null && destRealm !== n.id ? byId(destRealm) : null;
+  const grain = n.grain || 0, wood = n.timber || 0, ore = n.ore || 0;
+  if (other) {
+    if ((other.hungry || 0) > 0.04 && grain > 450) return { good: "grain", cargo: Math.min(900, Math.round(grain * 0.22)) };
+    if ((other.ore || 0) + 15 < ore && ore > 36) return { good: "ore", cargo: Math.min(28, Math.round(ore * 0.18)) };
+    if ((other.timber || 0) + 20 < wood && wood > 50) return { good: "timber", cargo: Math.min(36, Math.round(wood * 0.16)) };
+    if (grain > 800) return { good: "grain", cargo: Math.min(700, Math.round(grain * 0.12)) };
+    return null;
+  }
+  if (grain > 500) return { good: "grain", cargo: Math.min(800, Math.round(grain * 0.2)) };
+  if (wood > 80) return { good: "timber", cargo: Math.min(30, Math.round(wood * 0.12)) };
+  return null;
+}
+
+function takeCargo(n, offer) {
+  if (!offer) return false;
+  if (offer.good === "grain" && (n.grain || 0) >= offer.cargo) { n.grain -= offer.cargo; return true; }
+  if (offer.good === "timber" && (n.timber || 0) >= offer.cargo) { n.timber -= offer.cargo; return true; }
+  if (offer.good === "ore" && (n.ore || 0) >= offer.cargo) { n.ore -= offer.cargo; return true; }
+  return false;
+}
+
+function landCargo(u) {
+  const n = byId(u.owner);
+  if (!n || !(u.cargo > 0)) return;
+  const buyer = u.destRealm != null && u.destRealm !== n.id ? byId(u.destRealm) : null;
+  const who = buyer || n;
+  if (u.good === "timber") who.timber = Math.min(5000, (who.timber || 0) + u.cargo);
+  else if (u.good === "ore") who.ore = Math.min(3500, (who.ore || 0) + u.cargo);
+  else dropFood(u.dx, u.dy, u.cargo);
+  if (buyer) {
+    const ask = u.good === "ore" ? u.cargo * 4 : u.good === "timber" ? Math.round(u.cargo * 2.5) : Math.max(6, Math.round(u.cargo / 25));
+    const paid = Math.min(buyer.treasury || 0, ask);
+    buyer.treasury = (buyer.treasury || 0) - paid;
+    n.treasury = Math.min(12000, (n.treasury || 0) + paid);
+    u.back = 0;
+    u.backGood = "";
+    if (u.good !== "ore" && (n.ore || 0) < 25 && (buyer.ore || 0) > 40) {
+      u.back = Math.min(12, Math.round(buyer.ore * 0.12));
+      buyer.ore -= u.back;
+      u.backGood = "ore";
+    } else if (u.good !== "timber" && (n.timber || 0) < 40 && (buyer.timber || 0) > 60) {
+      u.back = Math.min(16, Math.round(buyer.timber * 0.1));
+      buyer.timber -= u.back;
+      u.backGood = "timber";
+    }
+    n.lastTrade = u.good + " to " + buyer.name + (paid ? " · " + paid + " coin" : " · unpaid");
+    buyer.lastTrade = u.good + " from " + n.name;
+    if ((year + u.id) % 4 === 0) chronicle(year, paid
+      ? n.name + " sells " + u.good + " to " + buyer.name + " for " + paid + " coin" + (u.back ? ". " + u.backGood + " comes back." : ".")
+      : n.name + " lands " + u.good + " in " + buyer.name + ", which cannot pay.");
+  }
+  u.cargo = 0;
+}
+
 function ensureCogs(n) {
-  if ((n.sea || 0) < 0.16 || !(n.coasts || 0) || (n.grain || 0) < 500 || unitCount(n.id, "cog")) return;
+  if ((n.sea || 0) < 0.16 || !(n.coasts || 0) || unitCount(n.id, "cog")) return;
   const home = portOf(n);
   if (!home) return;
   let dest = null;
@@ -1324,13 +1442,17 @@ function ensureCogs(n) {
     }
   }
   if (!dest) return;
+  const offer = loadOutbound(n, dest.realm);
+  if (!offer || !takeCargo(n, offer)) return;
   const path = waterPath(home.x, home.y, dest.x, dest.y);
-  if (!path || path.length < 2) return;
-  const load = Math.min(1200, Math.round(n.grain * 0.25));
-  if (load < 300) return;
-  n.grain -= load;
-  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: load, men: 0, dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
-  chronicle(year, "A merchant ship of " + n.name + " sails for " + dest.name + " with grain.");
+  if (!path || path.length < 2) {
+    if (offer.good === "grain") n.grain = (n.grain || 0) + offer.cargo;
+    else if (offer.good === "timber") n.timber = (n.timber || 0) + offer.cargo;
+    else n.ore = (n.ore || 0) + offer.cargo;
+    return;
+  }
+  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: offer.cargo, good: offer.good, men: 0, dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
+  chronicle(year, "A merchant ship of " + n.name + " sails for " + dest.name + " with " + offer.good + ".");
 }
 
 function stepCog(u) {
@@ -1344,16 +1466,21 @@ function stepCog(u) {
   for (let s = 0; s < 3; s++) {
     const next = u.pi + u.dir;
     if (next >= u.path.length) {
-      if (u.cargo > 0) dropFood(u.dx, u.dy, u.cargo);
-      u.cargo = 0;
+      landCargo(u);
       u.dir = -1;
       break;
     }
     if (next < 0) {
-      if ((n.grain || 0) < 500) return false;
-      const load = Math.min(1200, Math.round(n.grain * 0.25));
-      n.grain -= load;
-      u.cargo = load;
+      if (u.back) {
+        if (u.backGood === "ore") n.ore = Math.min(3500, (n.ore || 0) + u.back);
+        else n.timber = Math.min(5000, (n.timber || 0) + u.back);
+        u.back = 0;
+        u.backGood = "";
+      }
+      const offer = loadOutbound(n, u.destRealm);
+      if (!offer || !takeCargo(n, offer)) return false;
+      u.good = offer.good;
+      u.cargo = offer.cargo;
       u.dir = 1;
       u.pi = 0;
       break;
@@ -1429,9 +1556,12 @@ function ensureWarships(n) {
   const cap = seaRange(n) >= 22 ? 2 : 1;
   if ((n.sea || 0) < 0.22 || unitCount(n.id, "warship") >= cap) return;
   if (!n.atWar.size && (n.sea || 0) < 0.5) return;
+  if ((n.timber || 0) < 14 || (n.treasury || 0) < 40) return;
   const shore = homeShore(n);
   if (shore.length < 1) return;
   const spot = shore[Math.min(shore.length - 1, unitCount(n.id, "warship") * 4)];
+  n.timber -= 14;
+  n.treasury -= 40;
   units.push({ id: nextUnit++, kind: "warship", owner: n.id, x: spot[0], y: spot[1], men: 0, cargo: 0, dir: 1, pi: 0, pts: [[spot[0], spot[1]]] });
   const home = portOf(n);
   chronicle(year, n.name + " puts a warship off " + (home ? home.name : "its coast") + ".");
@@ -1558,12 +1688,43 @@ function marchHost(u) {
   moved(u);
 }
 
+function payRealm(n) {
+  if (!units) return;
+  const armies = units.filter(u => u.kind === "host" && u.owner === n.id);
+  const ships = units.filter(u => u.kind === "warship" && u.owner === n.id);
+  const merchants = units.filter(u => u.kind === "cog" && u.owner === n.id);
+  const coin = armies.length * 36 + ships.length * 22 + merchants.length * 8;
+  const wood = ships.length * 2 + merchants.length;
+  n.spent = coin;
+  if ((n.timber || 0) >= wood) n.timber -= wood;
+  else {
+    const victim = ships[ships.length - 1] || merchants[merchants.length - 1];
+    if (victim) {
+      victim.laid = true;
+      if ((year + n.id) % 5 === 0) chronicle(year, n.name + " lays up a hull. There is no timber to keep it.");
+    }
+  }
+  if (coin <= 0) return;
+  if ((n.treasury || 0) >= coin) {
+    n.treasury -= coin;
+    for (const u of armies) u.paid = true;
+  } else {
+    n.treasury = 0;
+    n.legitimacy = Math.max(6, (n.legitimacy || 40) - 1.5);
+    n.unrest = (n.unrest || 0) + 0.9;
+    for (const u of armies) { u.paid = false; u.men = Math.round((u.men || 0) * 0.88); }
+    if (armies.length && (year + n.id) % 6 === 0) chronicle(year, n.name + " cannot pay its army.");
+  }
+}
+
 function moveUnits() {
   if (!units) units = [];
   units = units.filter(u => {
     const n = byId(u.owner);
     return n && n.pops > 0;
   });
+  for (const n of nations) payRealm(n);
+  units = units.filter(u => !u.laid);
   for (const n of nations) {
     if (!n.atWar.size) disbandHosts(n.id);
     else raiseHosts(n);

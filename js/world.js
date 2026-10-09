@@ -370,3 +370,15 @@ function seedFaith() {
   }
 }
 
+function placeResources() {
+  resource = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const e = elev[y][x] || 0;
+    const blob = hash2(x >> 2, y >> 2);
+    const fine = hash2(x + 19, y + 7);
+    if (e > 0.52 && blob > 0.52 && fine > 0.38) resource[y][x] = 2;
+    else if (e > 0.26 && e < 0.6 && !(coast && coast[y][x]) && blob > 0.58 && fine > 0.42) resource[y][x] = 1;
+  }
+}
+
