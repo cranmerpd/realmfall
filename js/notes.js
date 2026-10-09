@@ -1,5 +1,12 @@
-const VERSION = "0.24";
+const VERSION = "0.25";
 const HISTORY = [
+  {
+    v: "0.25",
+    date: "9 Oct 2026",
+    items: [
+      "Climate is a map of its own, beside States, Faith, and Goods. Each province is shaded for the winter it actually has."
+    ]
+  },
   {
     v: "0.24",
     date: "9 Oct 2026",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25 — 9 Oct 2026
+
+- Climate is a map of its own, beside States, Faith, and Goods. Each province is shaded for the winter it actually has.
+
 ## 0.24 — 9 Oct 2026
 
 - The north and the high ground have harder winters. A low coast is milder. The hover and the Country sheet say which.

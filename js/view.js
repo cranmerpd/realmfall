@@ -147,6 +147,8 @@ function render() {
       let fill = "#3a463c";
       if (mapMode === "faith" && belief && belief[y][x]) {
         fill = mixFaithColor(belief[y][x]);
+      } else if (mapMode === "climate") {
+        fill = climateColor(x, y);
       } else if (id >= 0) {
         const base = byId(id)?.color || "#888888";
         fill = tint(base, "#ffffff", Math.max(0, Math.min(0.1, ((pop && pop[y][x]) || 1000) / 36000)));
@@ -225,6 +227,7 @@ function render() {
   ctx.stroke();
   drawFaithEdges(cw, ch);
   drawGoods(cw, ch);
+  drawClimateKey();
   drawUnits(cw, ch);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -286,6 +289,35 @@ function drawFaithEdges(cw, ch) {
     ctx.fillText(faithNames[i], lx + 12, canvas.height - 21);
     const w = typeof ctx.measureText === "function" ? ctx.measureText(faithNames[i]).width : faithNames[i].length * 6.4;
     lx += 12 + w + 18;
+  }
+}
+
+function climateColor(x, y) {
+  const w = climateWord(x, y);
+  if (w === "hard winter") return "#d7e6f4";
+  if (w === "cold winter") return "#6e90b4";
+  if (w === "mild coast") return "#c6a56e";
+  return "#8ea06e";
+}
+
+function drawClimateKey() {
+  if (mapMode !== "climate") return;
+  const items = [["#d7e6f4", "Hard winter"], ["#6e90b4", "Cold winter"], ["#8ea06e", "Mild winter"], ["#c6a56e", "Mild coast"]];
+  ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  let width = 16;
+  for (const [, name] of items) width += 28 + (typeof ctx.measureText === "function" ? ctx.measureText(name).width : name.length * 6.4);
+  ctx.fillStyle = "rgba(8,10,14,0.72)";
+  ctx.fillRect(8, canvas.height - 36, width, 22);
+  let lx = 16;
+  for (const [color, name] of items) {
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, canvas.height - 29, 8, 8);
+    ctx.fillStyle = "#f4f7fc";
+    ctx.fillText(name, lx + 12, canvas.height - 25);
+    const w = typeof ctx.measureText === "function" ? ctx.measureText(name).width : name.length * 6.4;
+    lx += 28 + w;
   }
 }
 
