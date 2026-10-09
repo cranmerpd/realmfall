@@ -119,7 +119,7 @@ const GOVS = ["Monarchy", "Republic", "Dictatorship", "Oligarchy", "Theocracy"];
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
-let elev, river, riverSys, flowToX, flowToY;
+let elev, river, riverSys, flowToX, flowToY, basin, dry;
 let nextId = 1;
 let nextCity = 1;
 let cities = [];
@@ -424,6 +424,17 @@ function traceRivers() {
     }
     sid++;
   }
+  basin = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    let cx = x, cy = y;
+    for (let s = 0; s < 48 && grid[cy][cx] === LAND; s++) {
+      if (riverSys[cy][cx]) { basin[y][x] = riverSys[cy][cx]; break; }
+      const nx = flowToX[cy][cx], ny = flowToY[cy][cx];
+      if (nx < 0 || grid[ny][nx] !== LAND) break;
+      cx = nx; cy = ny;
+    }
+  }
 }
 
 function pickGov(x, y) {
@@ -477,6 +488,7 @@ function generate() {
   nextId = 1;
   nextCity = 1;
   cities = [];
+  dry = {};
   year = 800 + ri(400);
   logLines = [];
   const spots = [];
@@ -635,8 +647,10 @@ function recount() {
 
 function step() {
   year++;
+  climate();
   demography();
   feed();
+  immigrate();
   culture();
   growCities();
   recount();
@@ -938,7 +952,153 @@ function emptyFrontier(n) {
   return moves;
 }
 
+function pourFaith(x, y, shares, already, arriving) {
+  if (!belief || !belief[y] || !belief[y][x] || !shares || arriving <= 0) return;
+  const tot = already + arriving || 1;
+  belief[y][x] = norm3([0, 1, 2].map(i => (belief[y][x][i] || 0) * already + (shares[i] || 0) * arriving));
+}
+
+function climate() {
+  if (!dry) dry = {};
+  for (const k of Object.keys(dry)) if (dry[k] <= year) delete dry[k];
+  for (const n of nations) n.parched = false;
+  if (!riverSys || rnd() > 0.04) {
+    markParched();
+    return;
+  }
+  const options = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (riverSys[y][x] && owner[y][x] >= 0) options.push(riverSys[y][x]);
+  }
+  if (options.length) {
+    const sys = options[ri(options.length)];
+    if (!(dry[sys] > year)) {
+      dry[sys] = year + 3 + ri(4);
+      let who = null;
+      for (let y = 0; y < ROWS && !who; y++) for (let x = 0; x < COLS; x++) {
+        if (basin && basin[y][x] === sys && owner[y][x] >= 0) { who = byId(owner[y][x]); break; }
+      }
+      chronicle(year, "Drought. The country that feeds " + (who ? who.name : "the river") + " yields almost nothing.");
+    }
+  }
+  markParched();
+}
+
+function markParched() {
+  if (!basin || !dry) return;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (!(dry[basin[y][x]] > year) || owner[y][x] < 0) continue;
+    const n = byId(owner[y][x]);
+    if (n) n.parched = true;
+  }
+}
+
+function settleFrontier(n, x, y) {
+  const hungry = n.hungry || 0;
+  const forced = n.gov === "Dictatorship" && hungry <= 0.14 && (n.legitimacy || 0) > 48;
+  if (hungry > 0.07 && !forced) return false;
+  if (n.gov === "Monarchy" && n.capital && hypot(x, y, n.capital) > Math.max(14, (n.reach || 8) + 4)) return false;
+  let donor = null, best = 0;
+  for (const [nx, ny] of neighbors(x, y)) {
+    if (owner[ny][nx] !== n.id) continue;
+    const souls = pop[ny][nx] || 0;
+    if (souls > best) { best = souls; donor = [nx, ny]; }
+  }
+  if (!donor || best < (forced ? 520 : 760)) return false;
+  const frac = n.gov === "Dictatorship" ? 0.16 : n.gov === "Republic" ? 0.055 : n.gov === "Oligarchy" ? 0.07 : 0.09;
+  let move = Math.round(best * frac);
+  move = Math.max(30, Math.min(best - 380, move));
+  if (move < 30) return false;
+  const locals = pop[y][x] || 0;
+  let flight = n.gov === "Republic" ? 0.1 : n.gov === "Dictatorship" ? 0.28 : 0.2;
+  if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x] && belief[y][x][n.faith] < 0.4) flight = 0.5;
+  const stayed = Math.round(locals * (1 - flight));
+  pop[donor[1]][donor[0]] = best - move;
+  pop[y][x] = Math.max(60, stayed + move);
+  if (belief && belief[y] && belief[y][x] && belief[donor[1]][donor[0]]) pourFaith(x, y, belief[donor[1]][donor[0]], stayed, move);
+  claim(x, y, n.id);
+  if (forced) n.unrest = (n.unrest || 0) + 1.8;
+  else if (n.gov === "Theocracy" && belief[y][x] && belief[y][x][n.faith] < 0.35) n.unrest = (n.unrest || 0) + 1.3;
+  else if (n.gov === "Republic" && belief[y][x] && faithTop(belief[y][x]) !== (n.creed || 0)) n.unrest = (n.unrest || 0) + 0.45;
+  return true;
+}
+
+function faithTop(shares) {
+  if (!shares) return 0;
+  let t = 0;
+  for (let i = 1; i < 3; i++) if ((shares[i] || 0) > (shares[t] || 0)) t = i;
+  return t;
+}
+
+function admits(n, x, y, shares) {
+  if (!n || (n.hungry || 0) > 0.1 || n.atWar.size) return false;
+  if (n.gov === "Monarchy" || n.gov === "Dictatorship") return false;
+  if (n.gov === "Theocracy") return !!(shares && shares[n.faith] > 0.48);
+  if (n.gov === "Oligarchy") return !!((coast && coast[y][x]) || (river && river[y][x] >= 12));
+  return n.gov === "Republic";
+}
+
+function immigrate() {
+  if (!pop || !belief) return;
+  for (const n of nations) {
+    if ((n.hungry || 0) < 0.08) continue;
+    let budget = Math.round((n.people || 2000) * 0.012);
+    for (let y = 0; y < ROWS && budget > 20; y++) for (let x = 0; x < COLS && budget > 20; x++) {
+      if (owner[y][x] !== n.id || (pop[y][x] || 0) < 480) continue;
+      for (const [nx, ny] of neighbors(x, y)) {
+        if (budget <= 20) break;
+        const dest = owner[ny][nx];
+        const move = Math.min(budget, Math.round((pop[y][x] || 0) * 0.035), 45);
+        if (move < 12) continue;
+        if (dest < 0 && grid[ny][nx] === LAND) {
+          const already = pop[ny][nx] || 0;
+          pop[y][x] -= move;
+          pop[ny][nx] = already + move;
+          pourFaith(nx, ny, belief[y][x], already, move);
+          budget -= move;
+        } else if (dest >= 0 && dest !== n.id && admits(byId(dest), nx, ny, belief[y][x])) {
+          const host = byId(dest);
+          const already = pop[ny][nx] || 0;
+          pop[y][x] -= move;
+          pop[ny][nx] = already + move;
+          pourFaith(nx, ny, belief[y][x], already, move);
+          if (host && faithTop(belief[y][x]) !== (host.creed || 0)) host.unrest = (host.unrest || 0) + 0.7;
+          budget -= move;
+        }
+      }
+    }
+  }
+  for (const c of cities) {
+    const id = owner[c.y][c.x];
+    const host = id >= 0 ? byId(id) : null;
+    if (!host || !admits(host, c.x, c.y, belief[c.y][c.x])) continue;
+    let budget = host.gov === "Republic" ? 70 : 40;
+    for (let y = Math.max(0, c.y - 2); y <= Math.min(ROWS - 1, c.y + 2) && budget > 15; y++) {
+      for (let x = Math.max(0, c.x - 2); x <= Math.min(COLS - 1, c.x + 2) && budget > 15; x++) {
+        if (grid[y][x] !== LAND || owner[y][x] === id) continue;
+        const srcN = owner[y][x] >= 0 ? byId(owner[y][x]) : null;
+        const crowded = (pop[y][x] || 0) > capacity(x, y);
+        if (srcN && (srcN.hungry || 0) < 0.05 && !crowded) continue;
+        if ((pop[y][x] || 0) < 400) continue;
+        if (!admits(host, c.x, c.y, belief[y][x])) continue;
+        const move = Math.min(budget, 28, Math.round((pop[y][x] || 0) * 0.04));
+        if (move < 10) continue;
+        const already = pop[c.y][c.x] || 0;
+        pop[y][x] -= move;
+        pop[c.y][c.x] = already + move;
+        pourFaith(c.x, c.y, belief[y][x], already, move);
+        const foreign = faithTop(belief[y][x]) !== (host.creed || 0);
+        if (foreign) host.unrest = (host.unrest || 0) + 0.55;
+        budget -= move;
+        if (foreign && (year + c.id) % 19 === 0) chronicle(year, c.name + " takes in outsiders. " + host.name + " is less of one mind for it.");
+      }
+    }
+  }
+}
+
 function grow(n) {
+  if ((n.hungry || 0) > 0.16) return;
+  if ((n.hungry || 0) > 0.07 && n.gov !== "Dictatorship") return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
   const thick = moves.filter(m => m.friends >= 2 || (coast && coast[m.ty] && coast[m.ty][m.tx]));
@@ -956,14 +1116,15 @@ function grow(n) {
     m.score = m.friends * 3.2 + align * (n.drive || 0.5) * 2.2 + stretch + sea + near + rnd();
   }
   moves.sort((a, b) => b.score - a.score);
-  let take = moves.length > 22 ? 3 : moves.length > 8 ? 2 : 1;
+  let take = 1;
+  if ((n.hungry || 0) < 0.03 && n.gov === "Republic") take = 2;
+  if (n.gov === "Dictatorship" && (n.legitimacy || 60) > 55 && (n.hungry || 0) < 0.1) take = 2;
   if ((n.legitimacy || 60) < 42) take = 1;
-  if (R.bully > 0.7 && (n.legitimacy || 60) > 58) take += 1;
   take = Math.min(moves.length, take);
   for (let i = 0; i < take; i++) {
     const m = moves[i];
     if (owner[m.ty][m.tx] >= 0) continue;
-    claim(m.tx, m.ty, n.id);
+    settleFrontier(n, m.tx, m.ty);
   }
 }
 
@@ -1479,6 +1640,7 @@ function landYield(x, y) {
     yld *= edge ? 0.6 : 0.88;
   }
   if (cities.some(c => c.x === x && c.y === y)) yld *= 0.25;
+  if (basin && dry && basin[y][x] && dry[basin[y][x]] > year) yld *= 0.42;
   return Math.max(60, yld);
 }
 
@@ -1772,6 +1934,7 @@ function row(label, value) {
 }
 
 function situation(n) {
+  if (n.parched) return "Drought. The river's country is failing, and the cities feel it.";
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
@@ -1843,6 +2006,7 @@ function drawUI() {
         + row("Population", fmt(focus.people))
         + row("Hungry", Math.round((focus.hungry || 0) * 100) + "%")
         + row("Grain to the sea", fmt(focus.grain || 0))
+        + row("Fields", focus.parched ? "Drought" : "Ordinary")
         + row("Provinces", focus.pops)
         + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
         + row("Seat", (() => { const s = cities.find(c => c.id === focus.seat); return s ? s.name + " · " + s.rank : "—"; })())
