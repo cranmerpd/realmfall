@@ -1,5 +1,16 @@
-const VERSION = "0.29";
+const VERSION = "0.30";
 const HISTORY = [
+  {
+    v: "0.30",
+    date: "9 Oct 2026",
+    items: [
+      "The world begins with one small people. The rest of the land is empty. Other realms come later, by breaking away, not by being placed at the start.",
+      "No faith is painted on the map at the start. A faith can begin among a primitive people, and more rarely once they can cut timber. It then spreads from the people who hold it to the people beside them.",
+      "Empty land has no population. People grow where they are fed, and a field that is feeding them grows faster than a province that is hungry.",
+      "Climate is a globe. Land sits in both hemispheres. Both poles are cold, the middle is warm, and high ground is cold whether or not it sits near a pole.",
+      "A sale is an exchange. The seller loses the goods and gains the coin. The buyer loses the coin and gains the goods. If the buyer cannot pay, the cargo goes home and nothing is added to the treasury."
+    ]
+  },
   {
     v: "0.29",
     date: "9 Oct 2026",

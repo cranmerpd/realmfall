@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30 — 9 Oct 2026
+
+- The world begins with one small people. The rest of the land is empty.
+- Faith is not painted on at the start. A faith can begin in the primitive age, and more rarely in the timber age, then spread from person to person.
+- Empty land stays empty. Fed provinces grow. Hungry ones do not.
+- Climate reads as a globe: cold at both poles, warm in the middle, and cold on high ground.
+- A sale moves goods one way and coin the other. An unpaid cargo goes home.
+
 ## 0.29 — 9 Oct 2026
 
 - A delivery is recorded as a trade, including grain landed on a realm's own shore.
