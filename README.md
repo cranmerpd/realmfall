@@ -17,7 +17,7 @@ If a new version looks like the old one, hard-refresh: Cmd-Shift-R on a Mac, Ctr
 - **States** colors the realms. **Faith** is a separate layer. A province is a mix of beliefs, not a flag.
 - White marks are settlements. They grow and shrink with the people in them.
 - Click a realm for its people, hunger, grain, government, and whether the fields are in drought.
-- **v0.18 · notes** opens the version history. **Log** is what happened in this world, not the history of the program.
+- **v0.19 · notes** opens the version history. **Log** is what happened in this world, not the history of the program.
 - **New map** starts another world. Leaving the browser tab pauses the years instead of racing to catch up.
 
 ## Files

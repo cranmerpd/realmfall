@@ -313,6 +313,10 @@ function capacity(x, y) {
     if (n.gov === "Republic" && kind === "inland") K *= 0.82;
     if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x] && belief[y][x][n.faith] < 0.34) K *= 0.76;
     if ((n.legitimacy || 60) < 40) K *= 0.78;
+    if ((n.treasury || 0) < 40) K *= 0.88;
+    else if ((n.treasury || 0) > 700) K *= 1.04;
+    if (resource && resource[y][x] === 1) K += 160;
+    if (resource && resource[y][x] === 2) K += 70;
     if (n.pacts) K *= 1 + Math.min(2, n.pacts) * 0.05;
     if (n.atWar.size) {
       const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
@@ -347,6 +351,7 @@ function growCities() {
       if (Math.hypot(xx - x, yy - y) > 4) continue;
       hinter += pop[yy][xx] || 0;
       surplus += Math.max(0, (pop[yy][xx] || 0) - capacity(xx, yy) * 0.72);
+      if (resource && resource[yy][xx]) surplus += 80;
       cells++;
     }
     if (hinter < 7500 || surplus < 900) continue;
@@ -358,6 +363,8 @@ function growCities() {
     if (founded.has(s.realm.id)) continue;
     const owned = cities.filter(c => owner[c.y][c.x] === s.realm.id).length;
     if (owned > Math.max(1, s.realm.pops / 40)) continue;
+    if ((s.realm.treasury || 0) < 20) continue;
+    s.realm.treasury -= 15;
     const town = placeCity(s.x, s.y, nameCity(), "town");
     const why = s.kind === "mouth" ? "where the river meets the sea"
       : s.kind === "river" ? "on the river, where the country can spare the people"
@@ -376,6 +383,11 @@ function relocateSeat(n, lost, cells) {
   const shock = n.gov === "Dictatorship" ? 40 : n.gov === "Monarchy" || n.gov === "Theocracy" ? 36 : 28;
   n.legitimacy = Math.max(6, (n.legitimacy || 40) - shock);
   n.stability = Math.max(5, (n.stability || 30) - 24);
+  if (taker && (n.treasury || 0) > 0) {
+    const loot = Math.round(n.treasury * (n.gov === "Monarchy" || n.gov === "Dictatorship" ? 0.22 : 0.14));
+    n.treasury -= loot;
+    taker.treasury = Math.min(12000, (taker.treasury || 0) + loot);
+  }
   if (cells.length < 16) {
     chronicle(year, (taker ? taker.name + " takes " + (lost ? lost.name : "the capital") + ". " : "") + n.name + " does not outlive its capital.");
     if (taker) for (const [x, y] of cells) if (owner[y][x] === n.id) claim(x, y, taker.id);
@@ -444,6 +456,10 @@ function extractLevy() {
       if (n.parched && basin && basin[y][x] && kind === 1) work *= 0.5;
       const front = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== n.id);
       if (front) work *= 0.55;
+      const onWater = (river && river[y][x] > 8) || (coast && coast[y][x]);
+      const town = cities.some(c => c.x === x && c.y === y || (owner[c.y] && owner[c.y][c.x] === n.id && Math.hypot(c.x - x, c.y - y) <= 3));
+      work *= onWater || cities.some(c => c.x === x && c.y === y) ? 1 : town ? 0.7 : 0.4;
+      if (n.gov === "Theocracy" && belief && belief[y][x] && (belief[y][x][n.faith] || 0) < 0.4) work *= 0.45;
       if (kind === 1) { const cut = 7 * work; n.timber = (n.timber || 0) + cut; n.cutTimber += cut; }
       else { const dug = 4.5 * work; n.ore = (n.ore || 0) + dug; n.dugOre += dug; }
     }
@@ -644,7 +660,7 @@ function immigrate() {
   if (!pop || !belief) return;
   for (const n of nations) {
     if ((n.hungry || 0) < 0.08) continue;
-    let budget = Math.round((n.people || 2000) * 0.012);
+    let budget = Math.round((n.people || 2000) * 0.012 * ((n.treasury || 0) < 40 ? 1.35 : 1));
     for (let y = 0; y < ROWS && budget > 20; y++) for (let x = 0; x < COLS && budget > 20; x++) {
       if (owner[y][x] !== n.id || (pop[y][x] || 0) < 480) continue;
       for (const [nx, ny] of neighbors(x, y)) {
@@ -675,6 +691,8 @@ function immigrate() {
     const host = id >= 0 ? byId(id) : null;
     if (!host || !admits(host, c.x, c.y, belief[c.y][c.x])) continue;
     let budget = host.gov === "Republic" ? 70 : 40;
+    if ((host.treasury || 0) > 280 && (host.hungry || 0) < 0.04) budget += 30;
+    if ((host.treasury || 0) < 30) budget = Math.round(budget * 0.45);
     for (let y = Math.max(0, c.y - 2); y <= Math.min(ROWS - 1, c.y + 2) && budget > 15; y++) {
       for (let x = Math.max(0, c.x - 2); x <= Math.min(COLS - 1, c.x + 2) && budget > 15; x++) {
         if (grid[y][x] !== LAND || owner[y][x] === id) continue;
@@ -700,6 +718,7 @@ function immigrate() {
 
 function grow(n) {
   if ((n.hungry || 0) > 0.2) return;
+  if ((n.treasury || 0) < 12) return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
   const reach = Math.max(3, n.reach || 3);
@@ -714,8 +733,11 @@ function grow(n) {
     const align = (dx / len) * bx + (dy / len) * by;
     const stretch = m.d > reach + 8 ? -1.4 : 0;
     const sea = coast && coast[m.ty][m.tx] ? R.trade * 1.2 : 0;
+    const good = resource && resource[m.ty][m.tx];
+    const wood = good === 1 ? (n.gov === "Oligarchy" ? 1.8 : 1.15) : 0;
+    const metal = good === 2 ? (n.gov === "Dictatorship" ? 1.8 : 1.05) : 0;
     const near = m.d < 8 ? R.hold * 1.2 : 0;
-    m.score = m.friends * 1.4 + align * (n.drive || 0.5) + stretch + sea + near + rnd();
+    m.score = m.friends * 1.4 + align * (n.drive || 0.5) + stretch + sea + wood + metal + near + rnd();
   }
   moves.sort((a, b) => b.score - a.score);
   let take = (n.hungry || 0) < 0.08 ? 2 : 1;
@@ -724,6 +746,7 @@ function grow(n) {
   for (let i = 0; i < take; i++) {
     const m = moves[i];
     if (owner[m.ty][m.tx] >= 0) continue;
+    n.treasury = Math.max(0, (n.treasury || 0) - 6);
     settleFrontier(n, m.tx, m.ty);
   }
 }
@@ -856,6 +879,9 @@ function warPush(n) {
   const foeId = [...n.atWar][0];
   const foe = byId(foeId);
   if (!foe) { n.atWar.clear(); return; }
+  const campaign = 16 + unitCount(n.id, "host") * 8;
+  if ((n.treasury || 0) >= campaign) n.treasury -= campaign;
+  else n.treasury = 0;
   const grabs = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
   for (let g = 0; g < grabs; g++) {
     const cands = [];
@@ -886,8 +912,8 @@ function warPush(n) {
       if (pocket.some(([x, y]) => foe.capital && x === foe.capital.x && y === foe.capital.y)) continue;
       const city = cities.find(c => c.x === m.tx && c.y === m.ty);
       const seat = foe.capital && m.tx === foe.capital.x && m.ty === foe.capital.y;
-      const power = muster(n) * (0.94 + rnd() * 0.12) * hostFactor(n, m.tx, m.ty);
-      let defense = muster(foe) * (0.94 + rnd() * 0.12) * hostFactor(foe, m.tx, m.ty);
+      const power = muster(n) * (0.94 + rnd() * 0.12) * hostFactor(n, m.tx, m.ty) * ((n.treasury || 0) < 40 ? 0.72 : 1) * ((n.hungry || 0) > 0.1 ? 0.84 : 1);
+      let defense = muster(foe) * (0.94 + rnd() * 0.12) * hostFactor(foe, m.tx, m.ty) * ((foe.treasury || 0) < 40 ? 0.8 : 1);
       const souls = (pop && pop[m.ty][m.tx]) || 0;
       if (city) defense *= [1.04, 1.1, 1.2, 1.32, 1.45][tierAt(city.rank)] + Math.min(0.08, souls / 100000);
       if (seat) {
@@ -909,6 +935,15 @@ function warPush(n) {
           const tier = tierAt(city.rank);
           foe.legitimacy = Math.max(6, (foe.legitimacy || 40) - [0, 4, 9, 14, 18][tier]);
           foe.stability -= [0, 3, 7, 11, 14][tier];
+          const loot = Math.round((foe.treasury || 0) * (0.05 + tier * 0.03));
+          const wood = Math.round((foe.timber || 0) * (0.04 + tier * 0.02));
+          const metal = Math.round((foe.ore || 0) * (0.05 + tier * 0.02));
+          foe.treasury = Math.max(0, (foe.treasury || 0) - loot);
+          foe.timber = Math.max(0, (foe.timber || 0) - wood);
+          foe.ore = Math.max(0, (foe.ore || 0) - metal);
+          n.treasury = Math.min(12000, (n.treasury || 0) + loot);
+          n.timber = Math.min(5000, (n.timber || 0) + wood);
+          n.ore = Math.min(3500, (n.ore || 0) + metal);
           chronicle(year, n.name + " sacks the " + city.rank + " of " + city.name + ". " + foe.name + " is thinner for it.");
         } else foe.stability -= 0.55;
       } else {
@@ -933,7 +968,11 @@ function considerPacts() {
       const a = nations[i], b = nations[j];
       if (!a.pact) a.pact = {};
       if (!b.pact) b.pact = {};
-      if (a.atWar.size || b.atWar.size || pactOn(a, b.id) || !sharesRiver(a, b)) continue;
+      if (a.atWar.size || b.atWar.size || pactOn(a, b.id)) continue;
+      const riverPeace = sharesRiver(a, b);
+      const complement = ((a.ore || 0) > 70 && (b.ore || 0) < 28) || ((b.ore || 0) > 70 && (a.ore || 0) < 28)
+        || ((a.timber || 0) > 120 && (b.timber || 0) < 40) || ((b.timber || 0) > 120 && (a.timber || 0) < 40);
+      if (!riverPeace && !complement) continue;
       if ((borderCounts(a)[b.id] || 0) < 4) continue;
       if (a.gov === "Dictatorship" || b.gov === "Dictatorship") continue;
       const heat = ((a.grievance && a.grievance[b.id]) || 0) + ((b.grievance && b.grievance[a.id]) || 0);
@@ -943,7 +982,10 @@ function considerPacts() {
       if (ap >= 2 || bp >= 2) continue;
       a.pact[b.id] = year + 80;
       b.pact[a.id] = year + 80;
-      chronicle(year, a.name + " and " + b.name + " keep a trade peace. A river runs through both.");
+      const because = !riverPeace && ((a.ore || 0) > 70 || (b.ore || 0) > 70) ? "One has the ore the other lacks."
+        : !riverPeace ? "One has the timber the other lacks."
+        : "A river runs through both.";
+      chronicle(year, a.name + " and " + b.name + " keep a trade peace. " + because);
     }
   }
 }
@@ -966,6 +1008,8 @@ function settleWars() {
       if (border < 2) why = n.name + " and " + foe.name + " no longer share a border. The fighting ends.";
       else if (lostN) why = n.name + " sues for peace with " + foe.name + " after heavy losses.";
       else if (lostF) why = foe.name + " sues for peace with " + n.name + " after heavy losses.";
+      else if ((n.treasury || 0) < 25 && year - rec.year > 6) why = n.name + " cannot pay for the war with " + foe.name + ".";
+      else if ((foe.treasury || 0) < 25 && year - rec.year > 6) why = foe.name + " cannot pay for the war with " + n.name + ".";
       else if (year - rec.year > 30 + (n.id % 14)) why = "The war between " + n.name + " and " + foe.name + " burns out.";
       if (!why) continue;
       makePeace(n, foe, 50 + ri(40));
@@ -998,6 +1042,7 @@ function learnSea(n) {
     let gain = 0.0032 * pace;
     if ((n.grain || 0) > 1600) gain += 0.0022;
     if ((n.timber || 0) > 90) gain += 0.0018;
+    if (n.lastTrade) gain += 0.0012;
     if ((n.treasury || 0) < 30) gain -= 0.004;
     if ((n.hungry || 0) > 0.08 || n.parched) gain = -0.01;
     n.sea = Math.max(0, Math.min(1, (n.sea || 0) + gain));
@@ -1014,12 +1059,14 @@ function factions(n) {
   const cult = n.cultShare || 0;
   const unrest = Math.min(1, (n.unrest || 0) / 80);
   const rich = Math.min(1, (n.wealth || 0) / Math.max(1, n.pops) / 8);
+  const broke = (n.treasury || 0) < 40 ? 0.7 : 0;
+  const traded = n.lastTrade ? 0.4 : 0;
   return [
-    { gov: "Republic", name: "merchants", w: Math.max(0.15, 1.1 + coastShare * 1.6 + rich + (n.gov === "Republic" ? 0.7 : 0) - hungry * 2.4) },
-    { gov: "Oligarchy", name: "ports", w: Math.max(0, 0.15 + coastShare * 2 + (n.sea || 0) * 0.8) },
-    { gov: "Monarchy", name: "country", w: 0.35 + hungry * 2.4 + (1 - coastShare) * 0.7 },
+    { gov: "Republic", name: "merchants", w: Math.max(0.15, 1.1 + coastShare * 1.6 + rich + traded + (n.gov === "Republic" ? 0.7 : 0) - hungry * 2.4 - broke) },
+    { gov: "Oligarchy", name: "ports", w: Math.max(0, 0.15 + coastShare * 2 + (n.sea || 0) * 0.8 + traded * 0.5) },
+    { gov: "Monarchy", name: "country", w: 0.35 + hungry * 2.4 + broke + (1 - coastShare) * 0.7 },
     { gov: "Theocracy", name: "cult", w: cult > 0.5 ? (cult - 0.35) * 3.2 : 0 },
-    { gov: "Dictatorship", name: "hard hand", w: unrest * 2.4 + (n.atWar.size ? 0.7 : 0) + ((n.legitimacy || 50) < 32 ? 0.8 : 0) }
+    { gov: "Dictatorship", name: "hard hand", w: unrest * 2.4 + (n.atWar.size ? 0.7 : 0) + ((n.legitimacy || 50) < 32 ? 0.8 : 0) + (hungry > 0.06 && taxRate(n) > 0.25 ? 0.5 : 0) }
   ].filter(f => f.w > 0.05);
 }
 
@@ -1777,6 +1824,9 @@ function provinceStrain(n, x, y) {
   if (souls < 1600 && !sea && R.trade > 0.6) s += 1.35;
   if (n.gov === "Dictatorship" && (n.legitimacy || 60) < 48) s += 1.5;
   if (n.gov === "Theocracy" && belief && belief[y][x] && belief[y][x][n.faith] < 0.34 && d > 8) s += (0.34 - belief[y][x][n.faith]) * 3.2;
+  if ((n.treasury || 0) < 40 && d > 10) s += 0.85;
+  if (n.gov === "Dictatorship" && (n.hungry || 0) > 0.05 && d > 8) s += 0.9;
+  if (resource && resource[y][x] && d > 12 && (n.gov === "Oligarchy" || (n.treasury || 0) < 50)) s += 0.75;
   if (n.gov === "Monarchy" && d < 18) s *= 0.4;
   return s;
 }
@@ -1824,7 +1874,12 @@ function considerRevolt(n) {
   n.unrest = (n.unrest || 0) + gain;
   if (n.unrest < 100) return;
   const babyName = nameRealm();
-  const why = n.gov === "Theocracy" ? "does not share the capital's cult"
+  let oreN = 0, woodN = 0;
+  if (resource) for (const [x, y] of blob) { if (resource[y][x] === 2) oreN++; else if (resource[y][x] === 1) woodN++; }
+  const why = oreN >= 3 ? "keeps the ore and will not send it to the capital"
+    : woodN >= 4 ? "keeps the timber and will not send it to the capital"
+    : (n.treasury || 0) < 30 && n.gov === "Republic" ? "is poor, and a republic holds together by prosperity"
+    : n.gov === "Theocracy" ? "does not share the capital's cult"
     : n.gov === "Dictatorship" ? "stops obeying the dictatorship"
     : n.gov === "Republic" ? "is poor, and a republic holds together by prosperity"
     : n.gov === "Oligarchy" ? "is inland, and the oligarchy spends on the ports"
@@ -1976,6 +2031,9 @@ function demography() {
       const leg = n.legitimacy || 60;
       if (leg > 72) r *= 1.12;
       if (leg < 42) r *= 0.66;
+      if ((n.treasury || 0) < 30) r *= 0.82;
+      if (resource && resource[y][x]) r *= 1.08;
+      if (n.gov === "Dictatorship" && (n.hungry || 0) > 0.06) r *= 0.84;
       if (n.gov === "Theocracy" && belief && belief[y] && belief[y][x]) r *= 0.5 + (belief[y][x][n.faith] || 0);
       if (n.gov === "Dictatorship" && n.atWar.size) r *= 0.7;
     }

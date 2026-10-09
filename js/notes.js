@@ -1,5 +1,15 @@
-const VERSION = "0.18";
+const VERSION = "0.19";
 const HISTORY = [
+  {
+    v: "0.19",
+    date: "9 Oct 2026",
+    items: [
+      "Timber and ore only pay well if a river, a coast, or a town can carry them. A theocracy collects less where the cult is not believed.",
+      "A broke realm settles less, loses people, fights worse, and can be forced to make peace. Sacking a city or a capital takes coin and stocks.",
+      "Empty land with timber or ore is settled first. A trade peace can be made because one realm has the good the other lacks.",
+      "A revolt can be a province keeping its ore or timber instead of sending it to the capital."
+    ]
+  },
   {
     v: "0.18",
     date: "9 Oct 2026",

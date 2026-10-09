@@ -391,7 +391,7 @@ function realmCoin(n) {
     + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : ""))
     + row("Grain at the ports", fmt(n.grain))
     + row("Last trade", n.lastTrade || "None")
-    + '<p class="quiet-line">' + why + '</p>';
+    + '<p class="quiet-line">' + why + ' Timber and ore far from a river, a coast, or a town barely reach the treasury. A broke realm settles less, fights worse, and loses people to anywhere that can pay.</p>';
 }
 
 function realmRule(n) {
