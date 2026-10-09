@@ -410,6 +410,7 @@ function realmCountry(n) {
     + row("Hungry", Math.round((n.hungry || 0) * 100) + "%")
     + row("Grain at the ports", fmt(n.grain || 0))
     + row("Fields", n.parched ? "Drought" : "Ordinary")
+    + row("Winter", n.capital ? climateWord(n.capital.x, n.capital.y) : "—")
     + row("Seat", seat ? seat.name : "—")
     + cityLines(n);
 }
@@ -581,7 +582,8 @@ canvas.addEventListener("mousemove", e => {
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
-        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : "");
+        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : "")
+        + "  ·  " + climateWord(x, y);
     } else label = "Unclaimed  ·  " + souls;
   }
   const here = (units || []).filter(u => u.x === x && u.y === y);

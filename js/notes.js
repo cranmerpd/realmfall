@@ -1,5 +1,14 @@
-const VERSION = "0.23";
+const VERSION = "0.24";
 const HISTORY = [
+  {
+    v: "0.24",
+    date: "9 Oct 2026",
+    items: [
+      "The north and the high ground have harder winters. A low coast is milder. The hover and the Country sheet say which.",
+      "A cold province grows less grain. A short harvest kills more people in a hard winter than in a mild one. A supplied army on a mild coast is spared. A hungry army in the cold is not.",
+      "A war can fall in any season, including winter. A realm still takes the same one or two provinces in a year."
+    ]
+  },
   {
     v: "0.23",
     date: "9 Oct 2026",

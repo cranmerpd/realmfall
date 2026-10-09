@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24 — 9 Oct 2026
+
+- The north and the high ground have harder winters. A low coast is milder. The hover and the Country sheet say which.
+- A cold province grows less grain. A short harvest kills more people in a hard winter than in a mild one. A supplied army on a mild coast is spared. A hungry army in the cold is not.
+- A war can fall in any season, including winter. A realm still takes the same one or two provinces in a year.
+
 ## 0.23 — 9 Oct 2026
 
 - A war is fought in spring, summer, and autumn. Winter the army holds.

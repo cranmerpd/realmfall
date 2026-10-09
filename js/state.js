@@ -12,7 +12,7 @@ const GOVS = ["Monarchy", "Republic", "Dictatorship", "Oligarchy", "Theocracy"];
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
-let elev, river, riverSys, flowToX, flowToY, basin, dry, resource;
+let elev, river, riverSys, flowToX, flowToY, basin, dry, resource, cold, ration;
 let nextId = 1;
 let nextCity = 1;
 let cities = [];

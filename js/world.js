@@ -391,6 +391,37 @@ function seedFaith() {
   }
 }
 
+function placeClimate() {
+  cold = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  let minY = ROWS, maxY = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const span = Math.max(1, maxY - minY);
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const north = (maxY - y) / span;
+    const e = (elev && elev[y][x]) || 0;
+    let c = north * 0.78 + Math.max(0, e - 0.32) * 0.7;
+    if (coast && coast[y][x] && e < 0.5) c -= 0.14;
+    cold[y][x] = Math.max(0, Math.min(1, c));
+  }
+}
+
+function coldAt(x, y) {
+  return cold && cold[y] ? cold[y][x] || 0 : 0;
+}
+
+function climateWord(x, y) {
+  const c = coldAt(x, y);
+  if (c > 0.62) return "hard winter";
+  if (c > 0.42) return "cold winter";
+  if (coast && coast[y] && coast[y][x] && c < 0.28) return "mild coast";
+  return "mild winter";
+}
+
 function placeResources() {
   resource = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {

@@ -5,6 +5,7 @@ function generate() {
   prev = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
   layContinents();
   markCoast();
+  placeClimate();
   placeResources();
   seedFaith();
   seedPop();
@@ -193,12 +194,48 @@ function recount() {
   nations = nations.filter(n => n.pops > 0);
 }
 
+function endureWinter() {
+  if (ration) {
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (grid[y][x] !== LAND) continue;
+      const ratio = ration[y][x];
+      if (!(ratio < 0.96)) continue;
+      const gap = 0.96 - ratio;
+      let loss = gap * 0.14;
+      const c = coldAt(x, y);
+      if (c > 0.45) loss *= 1 + (c - 0.45) * 1.6;
+      pop[y][x] = Math.max(120, Math.round((pop[y][x] || 0) * (1 - Math.min(0.42, loss))));
+    }
+  }
+  if (!units) return;
+  const told = new Set();
+  for (const u of units) {
+    if (u.kind !== "host") continue;
+    const c = coldAt(u.x, u.y);
+    if (c < 0.42) continue;
+    const fed = u.fed == null || u.fed > 0.72;
+    const stocked = ((pop[u.y] && pop[u.y][u.x]) || 0) > 800;
+    if (fed && stocked && c < 0.68) continue;
+    const bite = Math.min(0.28, (c - 0.38) * (fed && stocked ? 0.12 : 0.34));
+    u.men = Math.round((u.men || 0) * (1 - bite));
+    const n = byId(u.owner);
+    if (n && bite > 0.06 && !told.has(n.id)) {
+      told.add(n.id);
+      chronicle(year, "Winter kills men of " + n.name + "'s army. It is cold there, and the grain is thin.");
+    }
+  }
+  units = units.filter(u => {
+    if (u.kind !== "host" || (u.men || 0) >= 40) return true;
+    if (owner[u.y] && owner[u.y][u.x] === u.owner && pop[u.y]) pop[u.y][u.x] += u.men || 0;
+    return false;
+  });
+}
+
 function campaign() {
-  if (season === 3) return;
   for (const n of nations.slice()) {
     if (!nations.includes(n) || !n.pops) continue;
     if (!n.atWar.size) {
-      if (season === 0) considerWar(n);
+      if ((n.id + year) % 4 === season) considerWar(n);
       continue;
     }
     const foe = byId([...n.atWar][0]);
@@ -207,9 +244,12 @@ function campaign() {
       const cost = 16 + unitCount(n.id, "host") * 8;
       if ((n.treasury || 0) >= cost) n.treasury -= cost;
       else n.treasury = 0;
-      n.grabsLeft = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
+      const grabs = (n.people || 0) >= (foe.people || 1) * 0.9 ? 2 : 1;
+      n.grabsLeft = grabs;
+      n.fight1 = (n.id + year) % 4;
+      n.fight2 = grabs > 1 ? (n.fight1 + 2) % 4 : -1;
     }
-    if ((n.grabsLeft || 0) > 0) {
+    if ((n.grabsLeft || 0) > 0 && (season === n.fight1 || season === n.fight2)) {
       warPush(n);
       n.grabsLeft--;
     }
@@ -230,6 +270,7 @@ function step() {
     culture();
     growCities();
   } else if (season === 3) {
+    endureWinter();
     recount();
     const claimants = nations.slice();
     for (const n of claimants) {
@@ -257,7 +298,7 @@ function step() {
     recount();
     reindex();
   }
-  if (season !== 3) campaign();
+  campaign();
   if (season === 1) moveUnits();
   season = (season + 1) % 4;
   paintClock();
@@ -2136,7 +2177,7 @@ function landYield(x, y) {
   if (kind === "river" || kind === "mouth") yld += 680;
   if (kind === "mouth") yld += 180;
   if (kind === "coast") yld += 100;
-  if (elev && elev[y][x] > 0.58) yld -= 420;
+  yld *= 1.04 - coldAt(x, y) * 0.5;
   const id = owner[y][x];
   const n = id >= 0 ? byId(id) : null;
   if (n && n.atWar.size) {
@@ -2256,10 +2297,8 @@ function feed() {
     const ratio = Math.min(1, have[y][x] / eats);
     const city = placeAt[y][x];
     if (city) city.fed = ratio;
-    if (ratio < 0.96) {
-      const gap = 0.96 - ratio;
-      pop[y][x] = Math.max(120, Math.round((pop[y][x] || 0) * (1 - gap * 0.14)));
-    }
+    if (!ration) ration = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    ration[y][x] = ratio;
     const n = owner[y][x] >= 0 ? byId(owner[y][x]) : null;
     if (n && ratio < 0.9) n.hungryPeople += pop[y][x] || 0;
     if (city && ratio < 0.7 && n && (year + city.id) % 13 === 0) chronicle(year, city.name + " hungers. The country upriver is not feeding it.");
