@@ -1,5 +1,14 @@
-const VERSION = "0.11";
+const VERSION = "0.12";
 const HISTORY = [
+  {
+    v: "0.12",
+    date: "9 Oct 2026",
+    items: [
+      "Boats slide along the route they are taking, instead of jumping a square at a time.",
+      "A cog is a grain ship. The faint line is its route. It is not a warship, and grain is not money.",
+      "The panel counts a realm's own barges, cogs, and warships. Other boats on its rivers are listed apart, so the map and the numbers match."
+    ]
+  },
   {
     v: "0.11",
     date: "9 Oct 2026",

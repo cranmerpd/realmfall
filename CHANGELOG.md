@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12 — 9 Oct 2026
+
+- Boats slide along the route they are taking, instead of jumping a square at a time.
+- A cog is a grain ship. The faint line is its route. It is not a warship, and grain is not money.
+- The panel counts a realm's own barges, cogs, and warships. Other boats on its rivers are listed apart, so the map and the numbers match.
+
 ## 0.11 — 9 Oct 2026
 
 - Barges, cogs, warships, and hosts are on the map. Hover one to see whose it is.

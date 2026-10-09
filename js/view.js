@@ -33,39 +33,78 @@ function drawPlace(c, core, cw, ch) {
     ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.2, rad * 0.46), 0, Math.PI * 2); ctx.fillStyle = core; ctx.fill();
   }
 }
-function drawShip(x, y, color, war, hdg) {
+function glide() {
+  const f = Math.max(0, Math.min(1, (acc || 0) / 280));
+  return f * f * (3 - 2 * f);
+}
+function placeOf(u) {
+  const pts = u.pts;
+  if (!pts || pts.length < 2) return { x: u.x + 0.5, y: u.y + 0.5, hdg: -Math.PI / 2 };
+  const span = glide() * (pts.length - 1);
+  const i = Math.min(pts.length - 2, Math.floor(span));
+  const t = span - i;
+  const a = pts[i], b = pts[i + 1];
+  return {
+    x: a[0] + (b[0] - a[0]) * t + 0.5,
+    y: a[1] + (b[1] - a[1]) * t + 0.5,
+    hdg: Math.atan2(b[1] - a[1], b[0] - a[0])
+  };
+}
+function drawBoat(x, y, color, hdg, scale, mast) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate((hdg || -Math.PI / 2) + Math.PI / 2);
+  ctx.rotate((hdg == null ? -Math.PI / 2 : hdg) + Math.PI / 2);
   ctx.beginPath();
-  ctx.moveTo(0, war ? -6.2 : -4.4);
-  ctx.lineTo(war ? 3.1 : 2.2, war ? 4.4 : 3.1);
-  ctx.lineTo(war ? -3.1 : -2.2, war ? 4.4 : 3.1);
+  ctx.moveTo(0, -4.2 * scale);
+  ctx.quadraticCurveTo(2.8 * scale, -1.2 * scale, 2.3 * scale, 2.4 * scale);
+  ctx.lineTo(-2.3 * scale, 2.4 * scale);
+  ctx.quadraticCurveTo(-2.8 * scale, -1.2 * scale, 0, -4.2 * scale);
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.fill();
-  ctx.strokeStyle = "rgba(244,247,252,0.9)";
-  ctx.lineWidth = war ? 1 : 0.7;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, war ? -8.2 : -6);
+  ctx.strokeStyle = "rgba(6,8,12,0.9)";
+  ctx.lineWidth = 1;
   ctx.stroke();
-  if (war) {
+  if (mast) {
     ctx.beginPath();
-    ctx.moveTo(0.6, -7.4);
-    ctx.lineTo(3.4, -6.2);
-    ctx.lineTo(0.6, -5.2);
-    ctx.fillStyle = "#f4f7fc";
-    ctx.fill();
+    ctx.moveTo(0, 1.2 * scale);
+    ctx.lineTo(0, -6.4 * scale);
+    ctx.strokeStyle = "#f4f7fc";
+    ctx.lineWidth = Math.max(0.6, scale * 0.7);
+    ctx.stroke();
+    if (mast === "war") {
+      ctx.beginPath();
+      ctx.moveTo(0.4, -5.6 * scale);
+      ctx.lineTo(3.2 * scale, -4.5 * scale);
+      ctx.lineTo(0.4, -3.6 * scale);
+      ctx.fillStyle = "#f4f7fc";
+      ctx.fill();
+    }
   }
   ctx.restore();
 }
 function drawUnits(cw, ch) {
   if (!units) return;
   for (const u of units) {
+    if (u.kind !== "cog" || !u.path) continue;
     const n = byId(u.owner);
     if (!n) continue;
-    const x = (u.x + 0.5) * cw, y = (u.y + 0.5) * ch;
+    ctx.beginPath();
+    for (let i = 0; i < u.path.length; i++) {
+      const px = (u.path[i][0] + 0.5) * cw, py = (u.path[i][1] + 0.5) * ch;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = n.color;
+    ctx.globalAlpha = 0.28;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  for (const u of units) {
+    const n = byId(u.owner);
+    if (!n) continue;
+    const p = placeOf(u);
+    const x = p.x * cw, y = p.y * ch;
     if (u.kind === "host") {
       ctx.save();
       ctx.translate(x, y);
@@ -73,20 +112,13 @@ function drawUnits(cw, ch) {
       ctx.fillStyle = n.color;
       ctx.strokeStyle = u.fed < 0.7 ? "rgba(244,247,252,0.35)" : "#f4f7fc";
       ctx.lineWidth = 1;
-      const s = Math.max(2.2, Math.min(cw, ch) * 0.16);
+      const s = Math.max(2.4, Math.min(cw, ch) * 0.18);
       ctx.fillRect(-s, -s, s * 2, s * 2);
       ctx.strokeRect(-s, -s, s * 2, s * 2);
       ctx.restore();
-    } else if (u.kind === "barge") {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.fillStyle = n.color;
-      ctx.strokeStyle = "rgba(244,247,252,0.75)";
-      ctx.lineWidth = 0.6;
-      ctx.fillRect(-3.2, -1.3, 6.4, 2.6);
-      ctx.strokeRect(-3.2, -1.3, 6.4, 2.6);
-      ctx.restore();
-    } else drawShip(x, y, n.color, u.kind === "warship", u.hdg);
+    } else if (u.kind === "barge") drawBoat(x, y, n.color, p.hdg, 0.72, null);
+    else if (u.kind === "cog") drawBoat(x, y, n.color, p.hdg, 1, "cog");
+    else drawBoat(x, y, n.color, p.hdg, 1.35, "war");
   }
 }
 function render() {
@@ -230,7 +262,7 @@ function row(label, value) {
 function situation(n) {
   if (n.parched) return "Drought. The river's country is failing, and the cities feel it.";
   if ((n.hungry || 0) > 0.1) return "The cities are short of grain. People are dying of it faster than they are born.";
-  if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The host is in the field and the grain is not keeping up with it.";
+  if (n.atWar.size && units && units.some(u => u.kind === "host" && u.owner === n.id && u.fed < 0.7)) return "The host is standing on thin country, and the men are going hungry.";
   const foe = n.atWar.size ? byId([...n.atWar][0]) : null;
   if (foe) return "At war with " + foe.name + ". Strength is people, legitimacy, and how united those people are.";
   if (n.gov === "Republic") return "A democratic republic. It votes. Hunger, the cult, or a long fear can vote it into something else.";
@@ -307,7 +339,7 @@ function drawUI() {
         + '<div class="kicker sub">PEOPLE</div>'
         + row("Population", fmt(focus.people))
         + row("Hungry", Math.round((focus.hungry || 0) * 100) + "%")
-        + row("Grain to the sea", fmt(focus.grain || 0))
+        + row("Grain at the ports", fmt(focus.grain || 0))
         + row("Fields", focus.parched ? "Drought" : "Ordinary")
         + row("Provinces", focus.pops)
         + row("Per province", fmt(focus.pops ? focus.people / focus.pops : 0))
@@ -317,8 +349,11 @@ function drawUI() {
         + '<div class="kicker sub">STATE</div>'
         + row("Government", govLabel(focus.gov))
         + (focus.gov === "Republic" ? row("Parties", partyLine(focus)) : "")
-        + row("Ships", seaWord(focus))
-        + row("On the water", unitCount(focus.id, "barge") + " barges · " + unitCount(focus.id, "cog") + " cogs · " + unitCount(focus.id, "warship") + " warships")
+        + row("Seamanship", seaWord(focus))
+        + row("Barges", unitCount(focus.id, "barge"))
+        + row("Cogs", cogSummary(focus))
+        + row("Warships", unitCount(focus.id, "warship"))
+        + (boatsBeside(focus.id) ? row("Other boats here", boatsBeside(focus.id)) : "")
         + row("Hosts", unitCount(focus.id, "host"))
         + row("Legitimacy", Math.round(focus.legitimacy || 0))
         + row("River pacts", focus.pacts || 0)
@@ -368,8 +403,8 @@ canvas.addEventListener("mousemove", e => {
     const bit = here.map(u => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
-      if (u.kind === "barge") return "Barge of " + name;
-      if (u.kind === "cog") return "Cog of " + name + " · grain " + fmt(u.cargo);
+      if (u.kind === "barge") return "Barge of " + name + " · grain " + fmt(u.cargo);
+      if (u.kind === "cog") return "Cog of " + name + " · " + (u.cargo > 0 ? "grain to " : "returning from ") + (u.destName || "a port");
       if (u.kind === "warship") return "Warship of " + name;
       return "Host of " + name + " · " + fmt(u.men);
     }).join("  ·  ");
@@ -435,7 +470,7 @@ function loop(t) {
   if (!paused) {
     acc += dt * speed;
     let n = 0;
-    while (acc > 280 && n < 2) { acc -= 280; step(); n++; stepped = true; }
+    while (acc > 280 && n < 1) { acc -= 280; step(); n++; stepped = true; }
     if (acc > 560) acc = 0;
     render();
   }
