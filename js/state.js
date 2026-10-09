@@ -23,4 +23,6 @@ let speed = 2;
 let mapMode = "politics";
 let tab = "realm";
 let sheet = "brief";
+let season = 0;
+const SEASONS = ["Spring", "Summer", "Autumn", "Winter"];
 

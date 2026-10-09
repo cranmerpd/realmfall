@@ -1,5 +1,13 @@
-const VERSION = "0.21";
+const VERSION = "0.22";
 const HISTORY = [
+  {
+    v: "0.22",
+    date: "9 Oct 2026",
+    items: [
+      "The clock is Spring, Summer, Autumn, Winter. The same work still happens once a year, in that order.",
+      "Spring is births and the start of a drought. Autumn is the harvest, the hunger, and the tax. Winter is war, settlement, and movement. Summer does not run them again."
+    ]
+  },
   {
     v: "0.21",
     date: "9 Oct 2026",

@@ -17,6 +17,7 @@ function generate() {
   nextUnit = 1;
   dry = {};
   year = 800 + ri(400);
+  season = 0;
   logLines = [];
   const spots = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (grid[y][x] === LAND) spots.push([x, y]);
@@ -101,7 +102,8 @@ function claimDisk(n, r) {
 
 function chronicle(y, text) {
   if (!logLines) logLines = [];
-  logLines.unshift(y + ": " + text);
+  const when = SEASONS[season] ? y + " " + SEASONS[season] : String(y);
+  logLines.unshift(when + ": " + text);
   logLines = logLines.slice(0, 16);
 }
 
@@ -192,46 +194,52 @@ function recount() {
 }
 
 function step() {
-  year++;
-  reindex();
-  climate();
-  demography();
-  feed();
-  extractLevy();
-  immigrate();
-  culture();
-  growCities();
-  recount();
-  const claimants = nations.slice();
-  for (const n of claimants) {
-    if (!nations.includes(n) || n.pops === 0) continue;
-    settleCapital(n);
-    measure(n);
-    if (n.atWar.size) warPush(n);
-    else {
-      grow(n);
-      considerWar(n);
+  if (season === 0) {
+    year++;
+    reindex();
+    climate();
+    demography();
+  } else if (season === 2) {
+    reindex();
+    feed();
+    extractLevy();
+    immigrate();
+    culture();
+    growCities();
+  } else if (season === 3) {
+    recount();
+    const claimants = nations.slice();
+    for (const n of claimants) {
+      if (!nations.includes(n) || n.pops === 0) continue;
+      settleCapital(n);
+      measure(n);
+      if (n.atWar.size) warPush(n);
+      else {
+        grow(n);
+        considerWar(n);
+      }
     }
+    for (const n of nations.slice()) {
+      if (!nations.includes(n) || !n.pops) continue;
+      considerVote(n);
+      considerVoyage(n);
+    }
+    considerPacts();
+    settleWars();
+    for (const n of nations.slice()) considerCollapse(n);
+    nations = nations.filter(n => n.pops > 0);
+    reindex();
+    for (const n of nations.slice()) considerRevolt(n);
+    keepWhole();
+    absorbTiny();
+    if (year % 35 === 0) seedEmptyContinent();
+    recount();
+    for (const n of nations) holdSeat(n);
+    recount();
+    reindex();
+    moveUnits();
   }
-  for (const n of nations.slice()) {
-    if (!nations.includes(n) || !n.pops) continue;
-    considerVote(n);
-    considerVoyage(n);
-  }
-  considerPacts();
-  settleWars();
-  for (const n of nations.slice()) considerCollapse(n);
-  nations = nations.filter(n => n.pops > 0);
-  reindex();
-  for (const n of nations.slice()) considerRevolt(n);
-  keepWhole();
-  absorbTiny();
-  if (year % 35 === 0) seedEmptyContinent();
-  recount();
-  for (const n of nations) holdSeat(n);
-  recount();
-  reindex();
-  moveUnits();
+  season = (season + 1) % 4;
   paintClock();
 }
 

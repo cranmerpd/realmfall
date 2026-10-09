@@ -496,6 +496,8 @@ function chronicleHTML() {
 
 function drawUI() {
   document.getElementById("year").textContent = String(year);
+  const seasonEl = document.getElementById("season");
+  if (seasonEl) seasonEl.textContent = (SEASONS[season] || "Spring").toUpperCase();
   const count = document.getElementById("count");
   if (count) count.textContent = nations.length + " REALMS";
   const pause = document.getElementById("pause");
@@ -633,6 +635,8 @@ if (speedBox && speedBox.querySelectorAll) {
 function paintClock() {
   const y = document.getElementById("year");
   if (y) y.textContent = year == null ? "—" : String(year);
+  const seasonEl = document.getElementById("season");
+  if (seasonEl) seasonEl.textContent = (SEASONS[season] || "Spring").toUpperCase();
   const count = document.getElementById("count");
   if (count) count.textContent = (nations ? nations.length : 0) + " REALMS";
 }

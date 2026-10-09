@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22 — 9 Oct 2026
+
+- The clock is Spring, Summer, Autumn, Winter. The same work still happens once a year, in that order.
+- Spring is births and the start of a drought. Autumn is the harvest, the hunger, and the tax. Winter is war, settlement, and movement. Summer does not run them again.
+
 ## 0.21 — 9 Oct 2026
 
 - A theocracy adjusting its strength in a fight no longer stops the year.
