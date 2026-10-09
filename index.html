@@ -119,6 +119,7 @@ const GOVS = ["Monarchy", "Republic", "Dictatorship", "Oligarchy", "Theocracy"];
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
+let elev, river, riverSys, flowToX, flowToY;
 let nextId = 1;
 let nextCity = 1;
 let cities = [];
@@ -264,26 +265,122 @@ function landMasses(min) {
   return masses;
 }
 
+function hash2(ix, iy) {
+  let n = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ (seed | 0);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+}
+function vnoise(x, y) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(x0, y0), b = hash2(x0 + 1, y0), c = hash2(x0, y0 + 1), d = hash2(x0 + 1, y0 + 1);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+}
+function fbm(x, y) {
+  let v = 0, a = 0.55, f = 1, s = 0;
+  for (let i = 0; i < 5; i++) { v += vnoise(x * f, y * f) * a; s += a; a *= 0.5; f *= 2.08; }
+  return v / s;
+}
+
 function layContinents() {
   canals = [];
-  const gap = 9;
-  const split = 42 + ri(22);
-  carve(2, split - 1, 4, ROWS - 5);
-  canals.push({ x0: split, x1: split + gap - 1, y0: 0, y1: ROWS - 1 });
-  const eastX0 = split + gap, eastX1 = COLS - 3;
-  if (rnd() < 0.62) {
-    const mid = 30 + ri(14);
-    carve(eastX0, eastX1, 4, mid - 1);
-    carve(eastX0, eastX1, mid + gap, ROWS - 5);
-    canals.push({ x0: eastX0 - 1, x1: eastX1 + 1, y0: mid, y1: mid + gap - 1 });
-  } else {
-    carve(eastX0, eastX1, 4, ROWS - 5);
+  elev = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const centers = rnd() < 0.4
+    ? [{ x: 24 + ri(10), y: 22 + ri(8), r: 20 }, { x: 28 + ri(8), y: 56 + ri(6), r: 16 }, { x: 92 + ri(8), y: 38 + ri(12), r: 24 }]
+    : [{ x: 30 + ri(12), y: 38 + ri(10), r: 24 }, { x: 90 + ri(10), y: 36 + ri(14), r: 23 }];
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      let dome = 0;
+      for (const c of centers) {
+        const d = Math.hypot(x - c.x, y - c.y) / c.r;
+        dome = Math.max(dome, Math.max(0, 1 - d * d));
+      }
+      const wx = fbm(x * 0.09, y * 0.09);
+      const wy = fbm(x * 0.09 + 30, y * 0.09 + 12);
+      const n = fbm((x + (wx - 0.5) * 22) * 0.065, (y + (wy - 0.5) * 22) * 0.065);
+      const ridge = 1 - Math.abs(fbm(x * 0.04 + 8, y * 0.04) - 0.5) * 2;
+      const h = dome * 0.5 + (n - 0.5) * 0.95 + (ridge - 0.5) * 0.28;
+      elev[y][x] = h;
+      grid[y][x] = h > 0.14 ? LAND : WATER;
+    }
   }
-  smoothLand();
-  smoothLand();
-  drown();
-  for (const blob of landMasses(0)) if (blob.length < 70) for (const [x, y] of blob) grid[y][x] = WATER;
-  continents = landMasses(70).length;
+  separateCenters(centers);
+  for (let pass = 0; pass < 2; pass++) {
+    const next = grid.map(row => row.slice());
+    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) {
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (grid[y + dy][x + dx] === LAND) c++;
+      if (grid[y][x] === LAND && c <= 2) next[y][x] = WATER;
+      else if (grid[y][x] !== LAND && c >= 8) next[y][x] = LAND;
+    }
+    grid = next;
+  }
+  for (const blob of landMasses(0)) if (blob.length < 55) for (const [x, y] of blob) grid[y][x] = WATER;
+  traceRivers();
+  continents = landMasses(80).length;
+}
+
+function separateCenters(centers) {
+  const masses = landMasses(1);
+  const at = (c) => {
+    let best = null, bd = 1e9;
+    for (const blob of masses) for (const [x, y] of blob) {
+      const d = Math.hypot(x - c.x, y - c.y);
+      if (d < bd) { bd = d; best = blob; }
+    }
+    return best;
+  };
+  for (let i = 0; i < centers.length; i++) for (let j = i + 1; j < centers.length; j++) {
+    const A = centers[i], B = centers[j];
+    if (at(A) !== at(B)) continue;
+    const span = Math.hypot(A.x - B.x, A.y - B.y);
+    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) {
+      if (grid[y][x] !== LAND) continue;
+      const da = Math.hypot(x - A.x, y - A.y), db = Math.hypot(x - B.x, y - B.y);
+      if (Math.abs(da - db) < 3.2 && da + db < span + 10 && elev[y][x] < 0.48) grid[y][x] = WATER;
+    }
+  }
+}
+
+function traceRivers() {
+  river = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  riverSys = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  flowToX = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  flowToY = Array.from({ length: ROWS }, () => Array(COLS).fill(-1));
+  const acc = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const order = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    acc[y][x] = 1;
+    order.push([x, y]);
+    let bx = -1, by = -1, bh = elev[y][x];
+    for (const [nx, ny] of neighbors(x, y)) {
+      const h = grid[ny][nx] === LAND ? elev[ny][nx] : elev[y][x] - 1;
+      if (h < bh) { bh = h; bx = nx; by = ny; }
+    }
+    flowToX[y][x] = bx;
+    flowToY[y][x] = by;
+  }
+  order.sort((a, b) => elev[b[1]][b[0]] - elev[a[1]][a[0]]);
+  for (const [x, y] of order) {
+    const nx = flowToX[y][x], ny = flowToY[y][x];
+    if (nx >= 0 && grid[ny][nx] === LAND) acc[ny][nx] += acc[y][x];
+  }
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (acc[y][x] >= 11) river[y][x] = acc[y][x];
+  let sid = 1;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (river[y][x] < 11 || riverSys[y][x]) continue;
+    const q = [[x, y]];
+    riverSys[y][x] = sid;
+    while (q.length) {
+      const [cx, cy] = q.shift();
+      for (const [nx, ny] of neighbors(cx, cy)) {
+        if (river[ny][nx] >= 11 && !riverSys[ny][nx]) { riverSys[ny][nx] = sid; q.push([nx, ny]); }
+      }
+    }
+    sid++;
+  }
 }
 
 function pickGov(x, y) {
@@ -376,7 +473,7 @@ function found(x, y, name, color, why, gov, faithId) {
     id, name, color, born: year || 1000, stability: 70, legitimacy: 68, pops: 1,
     capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
-    faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0
+    faith: f, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {}
   };
   nations.push(n);
   const seat = placeCity(x, y, nameCity(), "city");
@@ -428,12 +525,21 @@ function makePeace(a, b, years) {
   if (b.grievance) b.grievance[a.id] = 15;
 }
 
+function pactOn(n, id) { return !!(n.pact && n.pact[id] > year); }
+
 function declareWar(n, foe, why) {
   if (!foe || n.atWar.size || foe.atWar.size || atPeace(n, foe.id)) return false;
   n.atWar.add(foe.id);
   foe.atWar.add(n.id);
   n.wars[foe.id] = { year, pops: n.pops };
   foe.wars[n.id] = { year, pops: foe.pops };
+  for (const other of nations) {
+    if (other.id === n.id || other.id === foe.id || !pactOn(other, foe.id)) continue;
+    if (!other.grievance) other.grievance = {};
+    if (!other.gnote) other.gnote = {};
+    other.grievance[n.id] = (other.grievance[n.id] || 0) + 55;
+    other.gnote[n.id] = "because the river trade with " + foe.name + " is cut";
+  }
   chronicle(year, why);
   return true;
 }
@@ -494,6 +600,7 @@ function step() {
       considerWar(n);
     }
   }
+  considerPacts();
   settleWars();
   for (const n of nations.slice()) considerCollapse(n);
   nations = nations.filter(n => n.pops > 0);
@@ -538,12 +645,18 @@ function growCities() {
     if (grid[y][x] !== LAND || owner[y][x] < 0) continue;
     if (cities.some(c => c.x === x && c.y === y)) continue;
     const souls = pop[y][x] || 0;
-    const need = coast[y][x] ? 2000 : 2600;
-    if (souls >= need) open.push([x, y, souls]);
+    const onRiver = river && river[y][x] > 11;
+    const mouth = onRiver && coast[y][x];
+    if (!onRiver && !coast[y][x] && souls < 3400) continue;
+    const need = mouth ? 1600 : onRiver ? 1900 : coast[y][x] ? 2300 : 3400;
+    if (souls < need) continue;
+    open.push([x, y, souls + (mouth ? 3000 : onRiver ? 1400 : 0)]);
   }
   open.sort((a, b) => b[2] - a[2]);
   for (const [x, y] of open) {
-    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < 7)) continue;
+    const onRiver = river && river[y][x] > 11;
+    const gap = onRiver ? 5 : 8;
+    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < gap)) continue;
     const realm = byId(owner[y][x]);
     if (!realm) continue;
     const owned = cities.filter(c => owner[c.y][c.x] === realm.id).length;
@@ -613,6 +726,7 @@ function measure(n) {
   let maxD = 0, sum = 0, sx = 0, sy = 0, people = 0, shores = 0, wealth = 0;
   const believers = [0, 0, 0];
   const R = rules(n.gov);
+  n.rivers = new Set();
   for (const [x, y] of cells) {
     const d = hypot(x, y, n.capital);
     if (d > maxD) maxD = d;
@@ -625,8 +739,12 @@ function measure(n) {
     if (shares) for (let i = 0; i < 3; i++) believers[i] += souls * shares[i];
     const sea = coast && coast[y] && coast[y][x];
     if (sea) shores++;
+    if (riverSys && riverSys[y][x]) n.rivers.add(riverSys[y][x]);
+    const mouth = sea && river && river[y][x] > 11;
     let w = souls / 800;
     if (sea) w *= R.sea;
+    if (river && river[y][x] > 11) w *= 1.14;
+    if (mouth) w *= R.trade > 0.5 ? 1.32 : 1.1;
     if (d < 5) w *= R.heart;
     if (souls < 1500) w *= R.poor;
     wealth += w;
@@ -634,6 +752,10 @@ function measure(n) {
   n.reach = maxD;
   n.people = people;
   n.coasts = shores;
+  let pacts = 0;
+  if (n.pact) for (const id of Object.keys(n.pact)) if (n.pact[id] > year) pacts++;
+  n.pacts = pacts;
+  wealth *= 1 + pacts * 0.07;
   n.wealth = Math.round(wealth);
   n.avg = sum / cells.length;
   n.label = { x: sx / cells.length, y: sy / cells.length };
@@ -683,7 +805,7 @@ function emptyFrontier(n) {
 function grow(n) {
   let moves = emptyFrontier(n);
   if (!moves.length) return;
-  const thick = moves.filter(m => m.friends >= 2);
+  const thick = moves.filter(m => m.friends >= 2 || (coast && coast[m.ty] && coast[m.ty][m.tx]));
   if (thick.length > 2) moves = thick;
   const reach = Math.max(3, n.reach || 3);
   const R = rules(n.gov);
@@ -768,6 +890,16 @@ function considerWar(n) {
       continue;
     }
     if (other.atWar.size || atPeace(n, other.id)) continue;
+    if (pactOn(n, other.id)) {
+      const reclaim = lostBorder(n, other.id);
+      if (reclaim < 4) {
+        n.grievance[id] = Math.max(0, (n.grievance[id] || 0) - 12);
+        continue;
+      }
+      delete n.pact[other.id];
+      if (other.pact) delete other.pact[n.id];
+      chronicle(year, n.name + " breaks the trade peace with " + other.name + ".");
+    }
     const R = rules(n.gov);
     const reasons = [];
     const reclaim = lostBorder(n, other.id);
@@ -810,6 +942,17 @@ function severs(id, x, y) {
   return components(cells).length > 1;
 }
 
+function splitOff(id, x, y) {
+  const cells = [];
+  for (let yy = 0; yy < ROWS; yy++) for (let xx = 0; xx < COLS; xx++) {
+    if (owner[yy][xx] === id && (xx !== x || yy !== y)) cells.push([xx, yy]);
+  }
+  if (cells.length < 2) return [];
+  const comps = components(cells);
+  if (comps.length < 2) return [];
+  return comps.slice(1).flat();
+}
+
 function warPush(n) {
   const foeId = [...n.atWar][0];
   const foe = byId(foeId);
@@ -826,23 +969,31 @@ function warPush(n) {
         seen.add(k);
         let friends = 0;
         for (const [ax, ay] of neighbors(tx, ty)) if (owner[ay][ax] === n.id) friends++;
-        cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital), reclaim: prev[ty][tx] === n.id ? 1 : 0 });
+        const coastCell = coast && coast[ty][tx];
+        cands.push({ tx, ty, friends, d: hypot(tx, ty, n.capital), reclaim: prev[ty][tx] === n.id ? 1 : 0, coast: coastCell ? 1 : 0 });
       }
     }
-    const thick = cands.filter(c => c.friends >= 2);
-    const pool = (thick.length ? thick : cands).slice();
-    if (!pool.length) return;
-    pool.sort((a, b) => (b.reclaim - a.reclaim) || (b.friends - a.friends) || (a.d - b.d));
+    if (!cands.length) return;
+    const R = rules(n.gov);
+    for (const m of cands) {
+      const port = m.coast && (cities.some(c => c.x === m.tx && c.y === m.ty) || (river && river[m.ty][m.tx] > 11));
+      m.score = m.reclaim * 6 + m.friends + m.coast * (R.trade > 0.5 ? 2.4 : 0.8) + (port ? 2 : 0) - m.d * 0.02 + rnd();
+    }
+    cands.sort((a, b) => b.score - a.score);
     let moved = false;
-    for (const m of pool) {
-      if (severs(foe.id, m.tx, m.ty)) continue;
+    for (const m of cands) {
+      const pocket = splitOff(foe.id, m.tx, m.ty);
+      if (pocket.length > 8) continue;
+      if (pocket.some(([x, y]) => foe.capital && x === foe.capital.x && y === foe.capital.y)) continue;
       const power = muster(n) * (0.94 + rnd() * 0.12);
       let defense = muster(foe) * (0.94 + rnd() * 0.12);
       if (m.tx === foe.capital.x && m.ty === foe.capital.y) defense *= 1.55;
       else if (cities.some(c => c.x === m.tx && c.y === m.ty)) defense *= 1.16;
       if (m.reclaim) defense *= 0.62;
+      if (m.coast) defense *= 0.92;
       if (power * (1 + m.friends * 0.05) > defense) {
         claim(m.tx, m.ty, n.id);
+        for (const [px, py] of pocket) claim(px, py, n.id);
         foe.stability -= 0.55;
       } else {
         n.stability -= 0.35;
@@ -851,6 +1002,33 @@ function warPush(n) {
       break;
     }
     if (!moved) return;
+  }
+}
+
+function sharesRiver(a, b) {
+  if (!a.rivers || !b.rivers) return false;
+  for (const id of a.rivers) if (b.rivers.has(id)) return true;
+  return false;
+}
+
+function considerPacts() {
+  for (let i = 0; i < nations.length; i++) {
+    for (let j = i + 1; j < nations.length; j++) {
+      const a = nations[i], b = nations[j];
+      if (!a.pact) a.pact = {};
+      if (!b.pact) b.pact = {};
+      if (a.atWar.size || b.atWar.size || pactOn(a, b.id) || !sharesRiver(a, b)) continue;
+      if ((borderCounts(a)[b.id] || 0) < 4) continue;
+      if (a.gov === "Dictatorship" || b.gov === "Dictatorship") continue;
+      const heat = ((a.grievance && a.grievance[b.id]) || 0) + ((b.grievance && b.grievance[a.id]) || 0);
+      if (heat > 35) continue;
+      const ap = Object.keys(a.pact).filter(id => a.pact[id] > year).length;
+      const bp = Object.keys(b.pact).filter(id => b.pact[id] > year).length;
+      if (ap >= 2 || bp >= 2) continue;
+      a.pact[b.id] = year + 80;
+      b.pact[a.id] = year + 80;
+      chronicle(year, a.name + " and " + b.name + " keep a trade peace. A river runs through both.");
+    }
   }
 }
 
@@ -1180,6 +1358,27 @@ function render() {
     }
   }
   ctx.stroke();
+  if (river && flowToX) {
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (river[y][x] < 28 || flowToX[y][x] < 0) continue;
+      ctx.moveTo((x + 0.5) * cw, (y + 0.5) * ch);
+      ctx.lineTo((flowToX[y][x] + 0.5) * cw, (flowToY[y][x] + 0.5) * ch);
+    }
+    ctx.strokeStyle = "rgba(126,184,204,0.85)";
+    ctx.lineWidth = 1.35;
+    ctx.stroke();
+    ctx.beginPath();
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (river[y][x] < 11 || river[y][x] >= 28 || flowToX[y][x] < 0) continue;
+      ctx.moveTo((x + 0.5) * cw, (y + 0.5) * ch);
+      ctx.lineTo((flowToX[y][x] + 0.5) * cw, (flowToY[y][x] + 0.5) * ch);
+    }
+    ctx.strokeStyle = "rgba(150,198,214,0.65)";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
   ctx.strokeStyle = mapMode === "faith" ? "rgba(244,247,252,0.62)" : "rgba(8,10,14,0.72)";
   ctx.beginPath();
   for (let y = 0; y < ROWS; y++) {
@@ -1329,6 +1528,7 @@ function drawUI() {
         + '<div class="kicker sub">STATE</div>'
         + row("Government", govLabel(focus.gov))
         + row("Legitimacy", Math.round(focus.legitimacy || 0))
+        + row("River pacts", focus.pacts || 0)
         + row("Prosperity", fmt(focus.wealth))
         + row("Stability", Math.round(focus.stability))
         + row("Unrest", Math.round(focus.unrest || 0))
