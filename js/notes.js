@@ -1,13 +1,27 @@
-const VERSION = "0.28";
+const VERSION = "0.29";
 const HISTORY = [
+  {
+    v: "0.29",
+    date: "9 Oct 2026",
+    items: [
+      "A delivery is a trade. Grain landed on a realm's own shore is recorded, and so is grain a barge carries to a city or a partner. Last trade stays empty only when nothing has been delivered.",
+      "A realm keeps more than one merchant. An oligarchy or a republic with several ports keeps the most. A dictatorship keeps fewer. A hull that has nothing to carry waits in port. It is not sold and bought again.",
+      "A barge is bought once. When the grain is delivered it sits idle on the river until the next load, instead of vanishing.",
+      "Fields are on the Goods map. Grain comes from those provinces. High ground and a mine are not a farm, so food is no longer an invisible yield on every square.",
+      "The Water sheet is now Trade and Military. Trade is merchants, barges, and the last delivery. Military is armies, warships, and wings.",
+      "A wing is not a ship. Steam, carrack, or sail is counted from the hulls that exist. A new ship is steam only after the oil age, a carrack after metal, and sail after timber.",
+      "Those same ages change speed. A rifle army marches farther in a season than a levy. A steam hull takes more water in a season than a sail. A wing is the fastest of them."
+    ]
+  },
   {
     v: "0.28",
     date: "9 Oct 2026",
     items: [
-      "A skirmish occupies a province. It is not annexed. A dictatorship takes that land in four years. A republic waits longer, and longer still when it is not trusted.",
-      "At a peace, ground that has been held is annexed. Ground that has not is handed back.",
-      "Each realm has a leader, and keeps a history of what was written about it. A monarch dies and another takes the crown. A republic elects. A restless dictatorship changes hands.",
-      "A crown can send a spy. The spy may be caught, may kill a leader, or may steal from a treasury."
+      "A war is a run of skirmishes. A victory occupies a province. It is not annexed that day.",
+      "Annexation comes later. A dictatorship takes occupied land quickly. A republic argues about it, and often hands it back at the peace.",
+      "Grain, timber, ore, oil, and silicon can all be sold. A republic or an oligarchy looks for the bargain. A dictatorship rarely will. The buyer pays coin, and can use the stock only for an age it has already learned.",
+      "Every realm has a leader. A republic elects the next one. A dictatorship changes hands when the country will not bear the person in it. Spies steal, and sometimes assassinate. A caught spy costs a republic more than it costs a dictatorship.",
+      "The log for a selected realm is that realm's own history. The world chronicle is still underneath it."
     ]
   },
   {

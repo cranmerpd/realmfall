@@ -441,3 +441,20 @@ function placeResources() {
   }
 }
 
+function placeFields() {
+  fields = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND || (resource && resource[y][x])) continue;
+    const e = elev[y][x] || 0;
+    if (e > 0.64) continue;
+    const c = coldAt(x, y);
+    if (c > 0.78) continue;
+    let p = 0.42;
+    if (e < 0.4) p += 0.22;
+    if (river && river[y][x] > 6) p += 0.28;
+    if (coast && coast[y][x]) p += 0.08;
+    if (c > 0.5) p -= 0.2;
+    if (rnd() < p) fields[y][x] = 1;
+  }
+}
+

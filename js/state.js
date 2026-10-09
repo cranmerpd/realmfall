@@ -14,7 +14,7 @@ const GIVEN = ["Alden", "Mira", "Cassian", "Ivo", "Sera", "Otto", "Nima", "Harun
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let grid, owner, prev, pop, belief, faithNames, canals, continents, nations, year, paused, selected, logLines, acc, seed, coast;
-let elev, river, riverSys, flowToX, flowToY, basin, dry, resource, cold, ration, occupy, occYear;
+let elev, river, riverSys, flowToX, flowToY, basin, dry, resource, cold, ration, occupy, occYear, fields;
 let nextId = 1;
 let nextCity = 1;
 let cities = [];

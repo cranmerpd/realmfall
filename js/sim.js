@@ -9,6 +9,7 @@ function generate() {
   markCoast();
   placeClimate();
   placeResources();
+  placeFields();
   seedFaith();
   seedPop();
   nations = [];
@@ -1659,10 +1660,25 @@ function launchBarge(x, y, ownerId, load) {
   const ownerNation = byId(ownerId);
   if (!units || load < 200 || !ownerNation || (ownerNation.age || 0) < 1) return 0;
   const sys = riverSys && riverSys[y][x];
-  if (units.some(u => u.kind === "barge" && u.owner === ownerId && sys && riverSys[u.y] && riverSys[u.y][u.x] === sys)) return 0;
   const dest = downstreamRun(x, y, ownerId);
   if (!dest || (dest.x === x && dest.y === y)) return 0;
-  units.push({ id: nextUnit++, kind: "barge", owner: ownerId, x, y, men: 0, cargo: load, destName: dest.name, dx: dest.x, dy: dest.y });
+  const fleet = units.filter(u => u.kind === "barge" && u.owner === ownerId && u.sys === sys);
+  const waiting = fleet.find(u => u.idle);
+  if (waiting) {
+    waiting.idle = false;
+    waiting.x = x;
+    waiting.y = y;
+    waiting.cargo = load;
+    waiting.destName = dest.name;
+    waiting.dx = dest.x;
+    waiting.dy = dest.y;
+    return load;
+  }
+  if (fleet.length >= ((ownerNation.pops || 0) > 36 ? 2 : 1)) return 0;
+  if ((ownerNation.timber || 0) < 6 || (ownerNation.treasury || 0) < 12) return 0;
+  ownerNation.timber -= 6;
+  ownerNation.treasury -= 12;
+  units.push({ id: nextUnit++, kind: "barge", owner: ownerId, sys, x, y, men: 0, cargo: load, destName: dest.name, dx: dest.x, dy: dest.y, idle: false });
   return load;
 }
 
@@ -1809,13 +1825,20 @@ function moved(u) {
 }
 
 function stepBarge(u) {
+  if (u.idle) return true;
+  const n = byId(u.owner);
+  const pace = n && (n.age || 0) >= 3 ? 3 : n && (n.age || 0) >= 2 ? 2 : 1;
   track(u);
-  for (let s = 0; s < 2; s++) {
+  for (let s = 0; s < pace; s++) {
     const nx = flowToX[u.y][u.x], ny = flowToY[u.y][u.x];
     if (nx < 0 || grid[ny][nx] !== LAND) {
-      const n = byId(u.owner);
-      if (n) n.grain = (n.grain || 0) + u.cargo;
-      return false;
+      if (n) {
+        n.grain = (n.grain || 0) + u.cargo;
+        n.lastTrade = "grain to the port";
+      }
+      u.cargo = 0;
+      u.idle = true;
+      return true;
     }
     const downId = owner[ny][nx];
     if (downId >= 0 && downId !== u.owner) {
@@ -1823,21 +1846,30 @@ function stepBarge(u) {
       const war = a && b && (a.atWar.has(b.id) || b.atWar.has(a.id));
       if (war) {
         dropFood(nx, ny, u.cargo * 0.5);
+        if (a) a.lastTrade = "grain taken on the river by " + b.name;
         if ((year + u.id) % 8 === 0) chronicle(year, "A barge of " + a.name + " is taken on the river by " + b.name + ".");
-        return false;
-      }
-      if (a && b && pactOn(a, b.id)) {
+      } else if (a && b && pactOn(a, b.id)) {
         dropFood(nx, ny, u.cargo);
+        a.lastTrade = "grain downriver to " + b.name;
+        b.lastTrade = "grain downriver from " + a.name;
         if ((year + u.id) % 10 === 0) chronicle(year, a.name + " delivers grain downriver to " + b.name + ".");
-        return false;
+      } else {
+        dropFood(u.x, u.y, u.cargo);
+        if (a) a.lastTrade = "grain held at the border";
       }
-      dropFood(u.x, u.y, u.cargo);
-      return false;
+      u.cargo = 0;
+      u.idle = true;
+      return true;
     }
     const city = cities.find(c => c.x === nx && c.y === ny);
     if (city && owner[ny][nx] === u.owner && (city.fed == null || city.fed < 0.94) && u.cargo > 0) {
       dropFood(nx, ny, u.cargo);
-      return false;
+      if (n) n.lastTrade = "grain downriver to " + city.name;
+      u.x = nx;
+      u.y = ny;
+      u.cargo = 0;
+      u.idle = true;
+      return true;
     }
     u.x = nx;
     u.y = ny;
@@ -1949,51 +1981,114 @@ function landCargo(u) {
     if ((year + u.id) % 4 === 0) chronicle(year, paid
       ? n.name + " sells " + u.good + " to " + buyer.name + " for " + paid + " coin" + (u.back ? ". " + u.backGood + " comes back." : ".")
       : n.name + " lands " + u.good + " in " + buyer.name + ", which cannot pay.");
-  }
+  } else n.lastTrade = (u.good || "grain") + " landed at " + (u.destName || "home");
   u.cargo = 0;
 }
 
-function ensureCogs(n) {
-  if ((n.age || 0) < 1 || (n.sea || 0) < 0.16 || !(n.coasts || 0) || unitCount(n.id, "cog")) return;
-  const home = portOf(n);
-  if (!home) return;
-  let dest = null;
+function merchantCap(n) {
+  let ports = 0;
+  for (const c of cities) if (owner[c.y] && owner[c.y][c.x] === n.id && coast && coast[c.y][c.x]) ports++;
+  let cap = Math.min(3, Math.max(1, ports));
+  if (n.gov === "Oligarchy") cap += 2;
+  else if (n.gov === "Republic") cap += 1;
+  else if (n.gov === "Dictatorship" || n.gov === "Theocracy") cap = Math.max(1, cap - 1);
+  if ((n.sea || 0) < 0.2 && ports < 2) cap = 1;
+  return Math.max(1, Math.min(5, cap));
+}
+
+function restoreCargo(n, u) {
+  if (!n || !(u.cargo > 0)) { if (u) u.cargo = 0; return; }
+  if (u.good === "grain") n.grain = (n.grain || 0) + u.cargo;
+  else if (u.good === "timber") n.timber = Math.min(5000, (n.timber || 0) + u.cargo);
+  else if (u.good === "ore") n.ore = Math.min(3500, (n.ore || 0) + u.cargo);
+  else if (u.good === "oil") n.oil = Math.min(2000, (n.oil || 0) + u.cargo);
+  else if (u.good === "silicon") n.silicon = Math.min(600, (n.silicon || 0) + u.cargo);
+  u.cargo = 0;
+}
+
+function cogDest(n, fleet) {
+  const used = new Set((fleet || []).filter(u => !u.idle && u.destName).map(u => u.destRealm + ":" + u.destName));
+  const options = [];
   const far = colonyPort(n);
   if (far) {
     const chunk = components(cellsOf(n.id)).find(comp => comp.some(([x, y]) => x === far[0] && y === far[1]));
     const city = chunk && cities.find(c => chunk.some(([x, y]) => x === c.x && y === c.y));
-    dest = city
+    options.push(city
       ? { x: city.x, y: city.y, realm: n.id, name: city.name }
-      : { x: far[0], y: far[1], realm: n.id, name: "its far shore" };
+      : { x: far[0], y: far[1], realm: n.id, name: "its far shore" });
   }
-  if (!dest && n.pact) {
-    for (const id of Object.keys(n.pact)) {
-      if (!(n.pact[id] > year)) continue;
-      const other = byId(Number(id));
-      const p = other && portOf(other);
-      if (p) { dest = { x: p.x, y: p.y, realm: other.id, name: p.name }; break; }
-    }
+  if (n.pact) for (const id of Object.keys(n.pact)) {
+    if (!(n.pact[id] > year)) continue;
+    const other = byId(Number(id));
+    const p = other && portOf(other);
+    if (p) options.push({ x: p.x, y: p.y, realm: other.id, name: p.name });
   }
+  return options.find(d => !used.has(d.realm + ":" + d.name)) || null;
+}
+
+function sendCog(n, u, dest, offer) {
+  const home = portOf(n);
+  const path = waterPath(u ? u.x : home.x, u ? u.y : home.y, dest.x, dest.y) || (home && waterPath(home.x, home.y, dest.x, dest.y));
+  if (!path || path.length < 2) return false;
+  const hull = u || { id: nextUnit++, kind: "cog", owner: n.id, men: 0, pts: [] };
+  hull.idle = false;
+  hull.path = path;
+  hull.pi = 0;
+  hull.dir = 1;
+  hull.x = path[0][0];
+  hull.y = path[0][1];
+  hull.cargo = offer.cargo;
+  hull.good = offer.good;
+  hull.hull = hull.hull || hullOf(n);
+  hull.dx = dest.x;
+  hull.dy = dest.y;
+  hull.destRealm = dest.realm;
+  hull.destName = dest.name;
+  hull.pts = [[path[0][0], path[0][1]]];
+  if (!u) units.push(hull);
+  return true;
+}
+
+function ensureCogs(n) {
+  if ((n.age || 0) < 1 || (n.sea || 0) < 0.16 || !(n.coasts || 0) || n.fleetIdle) return;
+  const home = portOf(n);
+  if (!home) return;
+  const mine = units.filter(u => u.kind === "cog" && u.owner === n.id);
+  for (const u of mine) {
+    if (!u.idle) continue;
+    const dest = cogDest(n, mine);
+    if (!dest) continue;
+    const offer = loadOutbound(n, dest.realm);
+    if (!offer || !takeCargo(n, offer)) continue;
+    if (!sendCog(n, u, dest, offer)) restoreCargo(n, { cargo: offer.cargo, good: offer.good });
+  }
+  if (mine.length >= merchantCap(n) || mine.some(u => u.idle)) return;
+  const dest = cogDest(n, mine);
   if (!dest) return;
   const offer = loadOutbound(n, dest.realm);
   if (!offer || !takeCargo(n, offer)) return;
-  const path = waterPath(home.x, home.y, dest.x, dest.y);
-  if (!path || path.length < 2) {
-    if (offer.good === "grain") n.grain = (n.grain || 0) + offer.cargo;
-    else if (offer.good === "timber") n.timber = (n.timber || 0) + offer.cargo;
-    else n.ore = (n.ore || 0) + offer.cargo;
-    return;
+  if ((n.timber || 0) < 8 || (n.treasury || 0) < 24) { restoreCargo(n, { cargo: offer.cargo, good: offer.good }); return; }
+  n.timber -= 8;
+  n.treasury -= 24;
+  if (!sendCog(n, null, dest, offer)) {
+    n.timber += 8;
+    n.treasury += 24;
+    restoreCargo(n, { cargo: offer.cargo, good: offer.good });
   }
-  units.push({ id: nextUnit++, kind: "cog", owner: n.id, x: path[0][0], y: path[0][1], path, pi: 0, dir: 1, cargo: offer.cargo, good: offer.good, men: 0, hull: hullOf(n), dx: dest.x, dy: dest.y, destRealm: dest.realm, destName: dest.name, pts: [[path[0][0], path[0][1]]] });
-  chronicle(year, "A merchant ship of " + n.name + " sails for " + dest.name + " with " + offer.good + ".");
 }
 
 function stepCog(u) {
   const n = byId(u.owner);
-  if (!n || !u.path || u.path.length < 2) return false;
+  if (!n) return false;
+  if (u.idle || n.fleetIdle) return true;
+  if (!u.path || u.path.length < 2) { u.idle = true; restoreCargo(n, u); return true; }
   if (u.destRealm !== n.id) {
     const other = byId(u.destRealm);
-    if (!other || n.atWar.has(other.id) || !(n.pact && n.pact[other.id] > year)) return false;
+    if (!other || n.atWar.has(other.id) || !(n.pact && n.pact[other.id] > year)) {
+      restoreCargo(n, u);
+      u.idle = true;
+      return true;
+    }
   }
   track(u);
   for (let s = 0; s < hullSteps(u); s++) {
@@ -2006,12 +2101,14 @@ function stepCog(u) {
     if (next < 0) {
       if (u.back) {
         if (u.backGood === "ore") n.ore = Math.min(3500, (n.ore || 0) + u.back);
+        else if (u.backGood === "oil") n.oil = Math.min(2000, (n.oil || 0) + u.back);
+        else if (u.backGood === "silicon") n.silicon = Math.min(600, (n.silicon || 0) + u.back);
         else n.timber = Math.min(5000, (n.timber || 0) + u.back);
         u.back = 0;
         u.backGood = "";
       }
       const offer = loadOutbound(n, u.destRealm);
-      if (!offer || !takeCargo(n, offer)) return false;
+      if (!offer || !takeCargo(n, offer)) { u.idle = true; u.cargo = 0; break; }
       u.good = offer.good;
       u.cargo = offer.cargo;
       u.dir = 1;
@@ -2115,6 +2212,7 @@ function enemyPort(n) {
 function stepWarship(u) {
   const n = byId(u.owner);
   if (!n) return false;
+  if (u.idle || n.fleetIdle) return true;
   if ((n.hungry || 0) > 0.16 || !portOf(n)) {
     chronicle(year, n.name + " lays up a warship. There is not enough food to keep the crew at sea.");
     return false;
@@ -2231,13 +2329,13 @@ function payRealm(n) {
   const coin = armies.length * 36 + ships.length * 22 + merchants.length * 8;
   const wood = ships.length * 2 + merchants.length;
   n.spent = coin;
-  if ((n.timber || 0) >= wood) n.timber -= wood;
-  else {
-    const victim = ships[ships.length - 1] || merchants[merchants.length - 1];
-    if (victim) {
-      victim.laid = true;
-      if ((year + n.id) % 5 === 0) chronicle(year, n.name + " lays up a hull. There is no timber to keep it.");
-    }
+  n.fleetIdle = false;
+  if ((n.timber || 0) >= wood) {
+    n.timber -= wood;
+    for (const u of ships) u.idle = false;
+  } else if (ships.length || merchants.length) {
+    n.fleetIdle = true;
+    if ((year + n.id) % 5 === 0) chronicle(year, n.name + " lays the hulls up in port. There is no timber to keep them at sea.");
   }
   if (coin <= 0) return;
   if ((n.treasury || 0) >= coin) {
@@ -2265,7 +2363,7 @@ function flyWing(u) {
   const foe = byId([...n.atWar][0]);
   if (!foe || !foe.capital) return;
   track(u);
-  for (let s = 0; s < 3; s++) {
+  for (let s = 0; s < 4; s++) {
     let best = null, bestD = hypot(u.x, u.y, foe.capital);
     for (const [nx, ny] of neighbors(u.x, u.y)) {
       if (grid[ny][nx] !== LAND) continue;
@@ -2286,7 +2384,6 @@ function moveUnits() {
     return n && n.pops > 0;
   });
   for (const n of nations) payRealm(n);
-  units = units.filter(u => !u.laid);
   for (const n of nations) {
     if (!n.atWar.size) disbandHosts(n.id);
     else raiseHosts(n);
@@ -2307,7 +2404,8 @@ function moveUnits() {
         continue;
       }
       track(u);
-      marchHost(u);
+      const pace = u.role === "rifles" ? 3 : u.role === "arms" || u.role === "company" ? 2 : 1;
+      for (let s = 0; s < pace; s++) marchHost(u);
       keep.push(u);
     } else if (u.kind === "air") {
       const n = byId(u.owner);
@@ -2595,11 +2693,12 @@ function demography() {
 }
 
 function landYield(x, y) {
-  let yld = 1550;
+  const field = fields && fields[y] && fields[y][x];
+  let yld = field ? 1750 : 340;
   const kind = siteKind(x, y);
-  if (kind === "river" || kind === "mouth") yld += 680;
-  if (kind === "mouth") yld += 180;
-  if (kind === "coast") yld += 100;
+  if (field && (kind === "river" || kind === "mouth")) yld += 680;
+  if (field && kind === "mouth") yld += 180;
+  if (field && kind === "coast") yld += 100;
   yld *= 1.04 - coldAt(x, y) * 0.5;
   const id = owner[y][x];
   const n = id >= 0 ? byId(id) : null;

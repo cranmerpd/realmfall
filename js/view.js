@@ -345,6 +345,13 @@ function drawClimateKey() {
 
 function drawGoods(cw, ch) {
   if (mapMode !== "goods" || !resource) return;
+  if (fields) {
+    ctx.fillStyle = "rgba(210,180,106,0.9)";
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (!fields[y][x]) continue;
+      ctx.fillRect((x + 0.22) * cw, (y + 0.22) * ch, Math.max(1, cw * 0.56), Math.max(1, ch * 0.56));
+    }
+  }
   const ink = { 1: "rgba(126,168,92,0.95)", 2: "rgba(196,150,88,0.96)", 3: "rgba(90,122,138,0.96)", 4: "rgba(198,186,232,0.96)" };
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const g = resource[y][x];
@@ -353,7 +360,7 @@ function drawGoods(cw, ch) {
     ctx.fillStyle = ink[g];
     ctx.fillRect((x + inset) * cw, (y + inset) * ch, Math.max(1, cw * (1 - inset * 2)), Math.max(1, ch * (1 - inset * 2)));
   }
-  const items = [["#7ea85c", "Timber"], ["#c49658", "Ore"], ["#5a7a8a", "Oil"], ["#c6bae8", "Silicon"]];
+  const items = [["#d2b46a", "Fields"], ["#7ea85c", "Timber"], ["#c49658", "Ore"], ["#5a7a8a", "Oil"], ["#c6bae8", "Silicon"]];
   ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -396,7 +403,7 @@ function faithBar(shares, total) {
   return html + "</div>";
 }
 function sheetNav() {
-  return '<div class="sheets">' + [["brief", "Brief"], ["country", "Country"], ["rule", "Rule"], ["coin", "Coin"], ["water", "Water"]].map(([id, label]) =>
+  return '<div class="sheets">' + [["brief", "Brief"], ["country", "Country"], ["rule", "Rule"], ["coin", "Coin"], ["trade", "Trade"], ["military", "Military"]].map(([id, label]) =>
     '<button type="button" data-sheet="' + id + '"' + (sheet === id ? ' class="on"' : "") + ">" + label + "</button>").join("") + "</div>";
 }
 function bindPanel() {
@@ -428,16 +435,29 @@ function cityLines(n) {
 }
 function cogLines(n) {
   const list = (units || []).filter(u => u.kind === "cog" && u.owner === n.id);
-  if (!list.length) return '<p class="quiet-line">No merchant is sailing. One sails when there is grain, timber, or ore to sell to a colony or a partner.</p>';
+  if (!list.length) return '<p class="quiet-line">No merchant hulls yet. A republic or an oligarchy keeps more of them than a dictatorship.</p>';
   return list.map(u => {
-    const way = u.cargo > 0 ? (u.good || "grain") + " to " : (u.backGood ? u.backGood + " home from " : "home from ");
-    return '<p class="quiet-line">Merchant · ' + way + (u.destName || "a port") + '.</p>';
+    const hull = u.hull === "steam" ? "steam" : u.hull === "carrack" ? "carrack" : "slow sail";
+    const way = u.idle ? "idle in port" : u.cargo > 0 ? (u.good || "grain") + " to " + (u.destName || "a port") : "home from " + (u.destName || "a port");
+    return '<p class="quiet-line">Merchant · ' + hull + ' · ' + way + '.</p>';
   }).join("");
 }
 function bargeLines(n) {
   const list = (units || []).filter(u => u.kind === "barge" && u.owner === n.id);
-  if (!list.length) return row("Barges", "None") + '<p class="quiet-line">No surplus is moving down this river.</p>';
-  return row("Barges", list.length) + list.slice(0, 4).map(u => '<p class="quiet-line">Carrying grain to ' + (u.destName || "a city") + '.</p>').join("");
+  if (!list.length) return row("Barges", "None") + '<p class="quiet-line">A barge is bought once, then it waits on the river until there is grain to move.</p>';
+  const idle = list.filter(u => u.idle).length;
+  return row("Barges", list.length + (idle ? " · " + idle + " idle" : ""))
+    + list.slice(0, 4).map(u => '<p class="quiet-line">' + (u.idle ? "Idle on the river." : "Carrying grain to " + (u.destName || "a city") + ".") + '</p>').join("");
+}
+function hullCensus(n, kind) {
+  const tally = {};
+  for (const u of units || []) {
+    if (u.owner !== n.id || u.kind !== kind) continue;
+    const w = u.hull === "steam" ? "steam" : u.hull === "carrack" ? "carrack" : "slow sail";
+    tally[w] = (tally[w] || 0) + 1;
+  }
+  const bits = Object.keys(tally).map(k => tally[k] + " " + k);
+  return bits.length ? bits.join(", ") : "None";
 }
 function partyBlock(n) {
   if (n.gov !== "Republic" || !n.parties || !n.parties.length) return '<p class="quiet-line">This state does not hold a vote.</p>';
@@ -469,7 +489,7 @@ function realmCountry(n) {
     + row("Provinces", n.pops || 0)
     + row("Hungry", Math.round((n.hungry || 0) * 100) + "%")
     + row("Grain at the ports", fmt(n.grain || 0))
-    + row("Fields", n.parched ? "Drought" : "Ordinary")
+    + row("Fields", fieldLine(n))
     + row("Winter", n.capital ? climateWord(n.capital.x, n.capital.y) : "—")
     + row("Seat", seat ? seat.name : "—")
     + cityLines(n);
@@ -513,19 +533,33 @@ function realmRule(n) {
     + '<div class="kicker">PARTIES</div>'
     + partyBlock(n);
 }
-function realmWater(n) {
-  const hulls = unitCount(n.id, "warship") + unitCount(n.id, "cog") + unitCount(n.id, "barge");
-  return row("Hulls on the map", hulls)
-    + row("Ships", hullWord(n))
-    + row("Warships", unitCount(n.id, "warship"))
-    + row("Armies", armyLine(n))
+function fieldLine(n) {
+  let nFields = 0;
+  if (fields) for (const [x, y] of cellsOf(n.id)) if (fields[y][x]) nFields++;
+  return nFields + (n.parched ? " · drought" : "");
+}
+function realmTrade(n) {
+  const merchants = unitCount(n.id, "cog");
+  return row("Merchants", merchants + " / " + (typeof merchantCap === "function" ? merchantCap(n) : merchants))
+    + row("Merchant hulls", hullCensus(n, "cog"))
+    + row("Last trade", n.lastTrade || "None")
+    + row("Grain at the ports", fmt(n.grain || 0))
     + row("Seamanship", seaWord(n))
     + bargeLines(n)
-    + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
     + row("River trade", pactNames(n))
-    + '<p class="quiet-line">A province changes hands only when an army, a wing, or a warship is there. At peace a warship patrols this coast. In a war it sails for the enemy coast.</p>'
-    + '<div class="kicker">BY SEA</div>'
+    + '<p class="quiet-line">A finished voyage is a trade, including grain landed on this realm\'s own shore. An idle hull stays. It is not sold and bought again.</p>'
+    + '<div class="kicker">AT SEA</div>'
     + cogLines(n);
+}
+function realmMilitary(n) {
+  const wings = (units || []).filter(u => u.kind === "air" && u.owner === n.id).length;
+  return row("Armies", armyLine(n))
+    + row("Warships", unitCount(n.id, "warship"))
+    + row("Warship hulls", hullCensus(n, "warship"))
+    + row("Wings", wings || "None")
+    + row("Seamanship", seaWord(n))
+    + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
+    + '<p class="quiet-line">A province changes hands only when an army, a wing, or a warship is there. A wing is not a ship. Hulls are counted from the ships that exist, not from the age alone. Oil makes a new ship steam. Metal makes it a carrack. Timber leaves it under sail. The same ages make an army march farther.</p>';
 }
 
 function nextArt(n) {
@@ -635,7 +669,7 @@ function drawUI() {
     panel.innerHTML = focus
       ? '<h2>' + focus.name + '</h2><p id="subtitle">' + govLabel(focus.gov) + (foe ? " · at war" : "") + '</p><p id="blurb">' + situation(focus) + '</p>'
         + sheetNav()
-        + (sheet === "country" ? realmCountry(focus) : sheet === "rule" ? realmRule(focus) : sheet === "coin" ? realmCoin(focus) : sheet === "water" ? realmWater(focus) : realmBrief(focus, foe))
+        + (sheet === "country" ? realmCountry(focus) : sheet === "rule" ? realmRule(focus) : sheet === "coin" ? realmCoin(focus) : sheet === "trade" || sheet === "water" ? realmTrade(focus) : sheet === "military" ? realmMilitary(focus) : realmBrief(focus, foe))
       : '<h2>The world</h2><p id="blurb">Pick a realm on the map, or open World.</p>'
         + row("Continents", continents || 0)
         + row("Realms", nations.length)
@@ -683,8 +717,12 @@ canvas.addEventListener("mousemove", e => {
     const bit = here.map(u => {
       const who = byId(u.owner);
       const name = who ? who.name : "a realm";
-      if (u.kind === "barge") return "Barge of " + name + " · grain to " + (u.destName || "a city");
-      if (u.kind === "cog") return "Merchant of " + name + " · " + (u.hull === "steam" ? "steam · " : u.hull === "carrack" ? "carrack · " : "slow sail · ") + (u.cargo > 0 ? (u.good || "grain") + " to " : "home from ") + (u.destName || "a port");
+      if (u.kind === "barge") return "Barge of " + name + (u.idle ? " · idle on the river" : " · grain to " + (u.destName || "a city"));
+      if (u.kind === "cog") {
+        const hull = u.hull === "steam" ? "steam · " : u.hull === "carrack" ? "carrack · " : "slow sail · ";
+        if (u.idle) return "Merchant of " + name + " · " + hull + "idle in port";
+        return "Merchant of " + name + " · " + hull + (u.cargo > 0 ? (u.good || "grain") + " to " : "home from ") + (u.destName || "a port");
+      }
       if (u.kind === "warship") return (u.hull === "steam" ? "Steam warship" : u.hull === "carrack" ? "Carrack" : "Slow warship") + " of " + name + (u.mission ? " · " + (u.mode === "war" ? "sailing to " : u.mode === "return" ? "returning to " : "") + u.mission : " · patrolling the coast");
       if (u.kind === "air") return "Wing of " + name;
       return armWord(u.role) + " of " + name + " · " + fmt(u.men);

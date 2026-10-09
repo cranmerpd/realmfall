@@ -54,7 +54,7 @@
   .note .when { margin-top: 4px; color: var(--dim); font: 500 10px/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .12em; }
   .note ul { margin: 8px 0 0; padding-left: 16px; }
   .note li { display: list-item; cursor: default; border: 0; padding: 2px 0; color: #d7dce4; font: 400 13px/1.45 Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; }
-  .sheets { display: flex; gap: 0; margin: 16px 0 4px; }
+  .sheets { display: flex; flex-wrap: wrap; gap: 0; margin: 16px 0 4px; }
   .sheets button { border: 0; border-radius: 0; padding: 0 0 7px; margin-right: 16px; color: var(--dim); letter-spacing: .14em; border-bottom: 1px solid transparent; }
   .sheets button.on { color: var(--ink); border-bottom-color: #f4f7fc; }
   .sheets button:hover { color: var(--ink); border-color: transparent; }

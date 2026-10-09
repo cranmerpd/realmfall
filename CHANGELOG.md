@@ -1,11 +1,22 @@
 # Changelog
 
+## 0.29 — 9 Oct 2026
+
+- A delivery is recorded as a trade, including grain landed on a realm's own shore.
+- A realm can keep more than one merchant. An idle hull waits. It is not deleted and bought again.
+- A barge is bought once and sits idle on the river between loads.
+- Fields are drawn on the Goods map. Grain comes from those provinces.
+- The Water sheet is split into Trade and Military.
+- Ship type is counted from the hulls on the map. A wing is not called a steam ship.
+- Army and hull speed follow the age: levy and sail are slowest, rifles and steam are faster, a wing is fastest.
+
 ## 0.28 — 9 Oct 2026
 
-- A skirmish occupies a province. It is not annexed. A dictatorship takes that land in four years. A republic waits longer, and longer still when it is not trusted.
-- At a peace, ground that has been held is annexed. Ground that has not is handed back.
-- Each realm has a leader, and keeps a history of what was written about it. A monarch dies and another takes the crown. A republic elects. A restless dictatorship changes hands.
-- A crown can send a spy. The spy may be caught, may kill a leader, or may steal from a treasury.
+- A war is a run of skirmishes. A victory occupies a province. It is not annexed that day.
+- Annexation comes later. A dictatorship takes occupied land quickly. A republic argues about it, and often hands it back at the peace.
+- Grain, timber, ore, oil, and silicon can all be sold. A republic or an oligarchy looks for the bargain. A dictatorship rarely will.
+- Every realm has a leader. A republic elects the next one. A dictatorship changes hands. Spies steal, and sometimes assassinate.
+- The log for a selected realm is that realm's own history.
 
 ## 0.27 — 9 Oct 2026
 
