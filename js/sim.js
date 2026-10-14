@@ -63,7 +63,7 @@ function found(x, y, name, color, why, gov, faithId, parent) {
   if (g === "Theocracy" && !(f >= 0 && faithNames && faithNames[f])) g = "Monarchy";
   const n = {
     id, name, color, born: year || 1000, stability: 70, legitimacy: 68, pops: 1,
-    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80,
+    capital: { x, y }, label: { x, y }, atWar: new Set(), peace: {}, wars: {}, quietUntil: (year || 1000) + 80, coupQuiet: (year || 1000) + 36,
     bearing: rnd() * Math.PI * 2, drive: 0.35 + rnd() * 0.5, bold: 0.4 + rnd() * 0.6,
     faith: f >= 0 ? f : -1, gov: g, grievance: {}, gnote: {}, unrest: 0, pact: {},
     sea: coast && coast[y] && coast[y][x] ? 0.14 : 0,
@@ -793,12 +793,39 @@ function extractLevy() {
     n.ore = Math.min(3500, n.ore || 0);
     n.oil = Math.min(2000, n.oil || 0);
     n.silicon = Math.min(600, n.silicon || 0);
-    const duty = (n.grain || 0) / (n.gov === "Oligarchy" || n.gov === "Republic" ? 50 : 95);
-    const fedLevy = (n.people || 0) * (1 - Math.min(0.85, n.hungry || 0)) / 400;
-    const base = (n.cutTimber || 0) * 2 + (n.dugOre || 0) * 3.2 + (n.drawnOil || 0) * 4 + (n.cutSilicon || 0) * 8 + duty + fedLevy;
-    n.taxTake = Math.round(base * taxRate(n));
-    n.treasury = Math.min(12000, (n.treasury || 0) + n.taxTake);
-    if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + ((n.hungry || 0) > 0.06 ? 0.9 : 0.15);
+    const grainValue = (n.yield || 0) * 0.0045;
+    let craft = 0;
+    for (const c of cities) {
+      if (!owner[c.y] || owner[c.y][c.x] !== n.id) continue;
+      let v = (pop[c.y][c.x] || 0) * 0.005 * (1 + (n.age || 0) * 0.1);
+      if ((coast && coast[c.y][c.x]) || (river && river[c.y][c.x] > 8)) v *= 1.4;
+      craft += v;
+    }
+    n.craft = Math.round(craft);
+    const dug = (n.cutTimber || 0) * 1.15 + (n.dugOre || 0) * 1.9 + (n.drawnOil || 0) * 2.8 + (n.cutSilicon || 0) * 5.5;
+    const traded = ((n.exports || 0) + (n.imports || 0)) * 0.5;
+    n.gdp = Math.round(Math.max(0, grainValue + dug + craft + traded));
+    n.lastExports = Math.round(n.exports || 0);
+    n.lastImports = Math.round(n.imports || 0);
+    n.exports = 0;
+    n.imports = 0;
+    const rate = taxRate(n);
+    n.taxTake = Math.round(n.gdp * rate);
+    n.treasury = Math.min(24000, (n.treasury || 0) + n.taxTake);
+    const coasts = n.pops ? (n.coasts || 0) / n.pops : 0;
+    if (n.gov === "Monarchy") {
+      const merchant = n.lastExports > 36 && coasts > 0.18;
+      if ((n.hungry || 0) > 0.08) n.unrest = (n.unrest || 0) + 2 + ((n.hungry || 0) - 0.08) * 22;
+      else n.unrest = Math.max(0, (n.unrest || 0) - (merchant ? 0.4 : 1.4));
+      if (merchant) n.unrest = (n.unrest || 0) + 2.2;
+      if ((n.hungry || 0) > 0.1 && (n.treasury || 0) > Math.max(280, n.gdp)) n.unrest = (n.unrest || 0) + 2.4;
+      n.unrest = Math.max(0, Math.min(100, n.unrest || 0));
+      if ((n.unrest || 0) > 42 && !n.grumbled) {
+        n.grumbled = true;
+        chronicle(year, "The people of " + n.name + " resent what the crown takes.");
+      }
+      if ((n.unrest || 0) < 16) n.grumbled = false;
+    } else if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + ((n.hungry || 0) > 0.06 ? 0.9 : 0.15);
     else if (n.gov === "Theocracy" && (n.cultShare || 0) < 0.45) n.unrest = (n.unrest || 0) + 0.4;
     else if (n.gov === "Republic") n.unrest = Math.max(0, (n.unrest || 0) - 0.15);
   }
@@ -847,6 +874,8 @@ function measure(n) {
   wealth += Math.min(90, (n.treasury || 0) / 35);
   wealth += Math.min(36, (n.timber || 0) / 35);
   wealth += Math.min(36, (n.ore || 0) / 18);
+  wealth += (n.gdp || 0) / 7;
+  wealth += Math.min(70, ((n.lastExports || 0) + (n.lastImports || 0)) / 10);
   if ((n.hungry || 0) > 0.04) wealth *= 1 - Math.min(0.45, n.hungry);
   n.wealth = Math.round(wealth);
   n.avg = sum / cells.length;
@@ -865,14 +894,17 @@ function measure(n) {
   }
   const rich = wealth / Math.max(1, cells.length);
   let target = 60;
-  if (n.gov === "Monarchy") target = 80 - Math.max(0, n.avg - 9) * 2.4;
-  else if (n.gov === "Republic") target = 40 + Math.min(42, rich * 7);
+  if (n.gov === "Monarchy") {
+    target = 74 - Math.max(0, n.avg - 9) * 2.2 - (n.hungry || 0) * 78;
+    if ((n.lastExports || 0) > 36 && shores / cells.length > 0.2) target -= 8;
+    if ((n.hungry || 0) > 0.1 && (n.treasury || 0) > 400) target -= 8;
+  } else if (n.gov === "Republic") target = 40 + Math.min(42, rich * 7);
   else if (n.gov === "Oligarchy") target = 36 + Math.min(28, (shores / cells.length) * 90) + Math.min(18, rich * 3);
   else if (n.gov === "Dictatorship") target = 70 - Math.min(28, warYears * 1.1) - (n.atWar.size ? 8 : 0);
   else if (n.gov === "Theocracy") target = 32 + n.cultShare * 62;
-  if ((n.hungry || 0) > 0.06) target -= n.hungry * (n.gov === "Republic" ? 40 : n.gov === "Oligarchy" ? 16 : 26);
+  if ((n.hungry || 0) > 0.06 && n.gov !== "Monarchy") target -= n.hungry * (n.gov === "Republic" ? 40 : n.gov === "Oligarchy" ? 16 : 26);
   if ((n.treasury || 0) < 40) target -= n.gov === "Republic" ? 3 : 10;
-  else if ((n.treasury || 0) > 600 && (n.gov === "Monarchy" || n.gov === "Dictatorship")) target += 6;
+  else if ((n.treasury || 0) > 600 && (n.hungry || 0) < 0.06 && (n.gov === "Monarchy" || n.gov === "Dictatorship")) target += 6;
   target = Math.max(12, Math.min(94, target));
   n.legitimacy = (n.legitimacy == null ? 68 : n.legitimacy) + (target - n.legitimacy) * 0.02;
   n.stability += (n.legitimacy - n.stability) * 0.015;
@@ -1583,45 +1615,50 @@ function considerVote(n) {
 }
 
 function considerCoup(n) {
-  if (!n || n.gov === "Republic" || n.atWar.size || year < (n.quietUntil || 0) || n.pops < 8) return;
+  if (!n || year < (n.coupQuiet || 0) || n.pops < 6) return;
+  if ((n.id % 4) !== season) return;
   const hungry = n.hungry || 0;
   const legit = n.legitimacy || 50;
   const unrest = n.unrest || 0;
-  if (legit > 40 && unrest < 46 && hungry < 0.09) return;
-  if (unrest < 30 && hungry < 0.08) return;
   const coastShare = n.pops ? (n.coasts || 0) / n.pops : 0;
   let next = null, why = "";
-  if (n.gov === "Dictatorship" && legit < 38 && (hungry > 0.07 || unrest > 48)) {
+  if (n.gov === "Monarchy") {
+    if (hungry > 0.11 && legit < 50 && unrest > 34 && rnd() < 0.05 + hungry * 0.22) {
+      next = "Republic";
+      why = "The hungry throw down the crown. A democratic republic is declared.";
+    } else if (unrest > 56 && legit < 38 && rnd() < 0.1) {
+      next = "Dictatorship";
+      why = "The crown falls. A dictatorship takes the capital.";
+    } else if ((n.cultShare || 0) > 0.55 && legit < 46 && hungry > 0.04 && rnd() < 0.06) {
+      next = "Theocracy";
+      why = "The cult takes the capital from the crown.";
+    } else if (coastShare > 0.25 && (n.lastExports || 0) > 48 && unrest > 22 && legit < 58 && rnd() < 0.04) {
+      next = "Oligarchy";
+      why = "The ports take the customs from the crown. An oligarchy keeps the coasts.";
+    }
+  } else if (n.gov === "Republic" || n.atWar.size && hungry < 0.16 && unrest < 60) {
+    return;
+  } else if (n.gov === "Dictatorship" && legit < 38 && (hungry > 0.07 || unrest > 48) && rnd() < 0.16) {
     next = "Republic";
     why = "The dictatorship is thrown out. A democratic republic is declared.";
-  } else if (n.gov === "Theocracy" && (n.cultShare || 0) < 0.36 && unrest > 34) {
+  } else if (n.gov === "Theocracy" && (n.cultShare || 0) < 0.36 && unrest > 34 && rnd() < 0.14) {
     next = coastShare > 0.22 ? "Republic" : "Monarchy";
     why = next === "Republic"
       ? "The cult cannot hold the capital. A democratic republic is declared."
       : "The cult cannot hold the capital. A crown is set in its place.";
-  } else if (n.gov === "Oligarchy" && hungry > 0.07 && coastShare < 0.18) {
+  } else if (n.gov === "Oligarchy" && hungry > 0.07 && coastShare < 0.18 && rnd() < 0.12) {
     next = "Republic";
     why = "The inland country throws out the ports. A democratic republic is declared.";
-  } else if (n.gov === "Monarchy" && hungry > 0.09 && legit < 34) {
-    next = "Republic";
-    why = "The crown cannot feed the country. A democratic republic is declared.";
-  } else if (n.gov === "Monarchy" && unrest > 62 && legit < 28) {
-    next = "Dictatorship";
-    why = "The crown falls. A dictatorship takes the capital.";
-  } else if ((n.cultShare || 0) > 0.72 && legit < 34 && hungry > 0.05) {
-    next = "Theocracy";
-    why = "The cult takes the capital from the crown.";
-  } else if (n.gov === "Monarchy" && coastShare > 0.34 && (n.treasury || 0) < 30 && legit < 38) {
-    next = "Oligarchy";
-    why = "The ports buy out the crown. An oligarchy keeps the coasts.";
   }
   if (!next || next === n.gov) return;
+  if (next === "Theocracy" && !(n.faith >= 0 && faithNames && faithNames[n.faith])) return;
   n.gov = next;
   seatLeader(n);
-  n.legitimacy = next === "Republic" ? 52 : 38;
+  n.legitimacy = next === "Republic" ? 52 : 40;
   n.stability = Math.max(14, (n.stability || 30) - 6);
-  n.unrest = Math.max(0, unrest * 0.3);
-  n.quietUntil = year + 36;
+  n.unrest = Math.max(0, unrest * 0.35);
+  n.coupQuiet = year + 40;
+  n.grumbled = false;
   if (next === "Republic") n.nextVote = year + 22;
   chronicle(year, n.name + ". " + why);
 }
@@ -2117,6 +2154,19 @@ function giveStock(who, good, amt) {
   else who.grain = (who.grain || 0) + amt;
 }
 
+function goodPrice(good, cargo, buyer) {
+  const unit = good === "silicon" ? 12 : good === "oil" ? 5.5 : good === "ore" ? 3.6 : good === "timber" ? 2.4 : 0.045;
+  let p = unit * (cargo || 0);
+  if (buyer) {
+    if (good === "grain" && (buyer.hungry || 0) > 0.03) p *= 1 + Math.min(1.5, (buyer.hungry || 0) * 3);
+    else if (good === "timber" && (buyer.timber || 0) < 30) p *= 1.25;
+    else if (good === "ore" && (buyer.ore || 0) < 16) p *= 1.35;
+    else if (good === "oil" && (buyer.oil || 0) < 8) p *= 1.3;
+    else if (good === "silicon" && (buyer.silicon || 0) < 3) p *= 1.4;
+  }
+  return Math.max(4, Math.round(p));
+}
+
 function landCargo(u) {
   const n = byId(u.owner);
   if (!n || !(u.cargo > 0)) return;
@@ -2128,7 +2178,7 @@ function landCargo(u) {
     u.cargo = 0;
     return;
   }
-  const ask = u.good === "silicon" ? u.cargo * 14 : u.good === "oil" ? u.cargo * 6 : u.good === "ore" ? u.cargo * 4 : u.good === "timber" ? Math.round(u.cargo * 2.5) : Math.max(6, Math.round(u.cargo / 25));
+  const ask = goodPrice(u.good, u.cargo, buyer);
   if ((buyer.treasury || 0) < ask) {
     giveStock(n, u.good, u.cargo);
     n.lastTrade = buyer.name + " could not pay for " + u.good;
@@ -2138,8 +2188,11 @@ function landCargo(u) {
     return;
   }
   buyer.treasury -= ask;
-  n.treasury = Math.min(12000, (n.treasury || 0) + ask);
-  giveStock(buyer, u.good, u.cargo);
+  n.treasury = Math.min(24000, (n.treasury || 0) + ask);
+  n.exports = (n.exports || 0) + ask;
+  buyer.imports = (buyer.imports || 0) + ask;
+  if (u.good === "grain") buyer.stores = (buyer.stores || 0) + u.cargo;
+  else giveStock(buyer, u.good, u.cargo);
   n.lastTrade = u.cargo + " " + u.good + " to " + buyer.name + " · " + ask + " coin";
   buyer.lastTrade = u.cargo + " " + u.good + " from " + n.name + " · " + ask + " coin";
   chronicle(year, n.name + " sells " + u.cargo + " " + u.good + " to " + buyer.name + " for " + ask + " coin.");
@@ -2628,11 +2681,11 @@ function considerRevolt(n) {
   if (!nations.includes(n) || n.atWar.size || year < (n.quietUntil || 0)) return;
   if ((n.id % 4) !== season) return;
   const cells = cellsOf(n.id);
-  if (cells.length < 40 || (n.reach || 0) < 12) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
+  if (cells.length < 40 || (n.reach || 0) < 12) { n.unrest = Math.max(0, (n.unrest || 0) - 1.2); return; }
   const strained = cells.filter(([x, y]) => provinceStrain(n, x, y) > 1);
-  if (strained.length < 8) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
+  if (strained.length < 8) { n.unrest = Math.max(0, (n.unrest || 0) - 1.5); return; }
   const region = components(strained).find(c => c.length >= 8);
-  if (!region) { n.unrest = Math.max(0, (n.unrest || 0) - 6); return; }
+  if (!region) { n.unrest = Math.max(0, (n.unrest || 0) - 1.5); return; }
   const cap = Math.min(14, Math.max(8, Math.floor(n.pops * 0.05)));
   let hx = region[0][0], hy = region[0][1], hd = -1;
   for (const [x, y] of region) {
@@ -2883,7 +2936,7 @@ function landYield(x, y) {
 
 function feed() {
   if (!pop || !owner) return;
-  for (const n of nations) { n.grain = 0; n.hungryPeople = 0; n.hungry = 0; }
+  for (const n of nations) { n.grain = 0; n.yield = 0; n.hungryPeople = 0; n.hungry = 0; }
   const need = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   const have = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   const surplus = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -2894,6 +2947,8 @@ function feed() {
     const city = placeAt[y][x];
     const eats = (pop[y][x] || 0) * (city ? [1.04, 1.12, 1.32, 1.52, 1.72][tierAt(city.rank)] : 1);
     const yld = landYield(x, y);
+    const holder = owner[y][x] >= 0 ? byId(owner[y][x]) : null;
+    if (holder) holder.yield = (holder.yield || 0) + yld;
     need[y][x] = eats;
     have[y][x] = Math.min(eats, yld);
     surplus[y][x] = Math.max(0, yld - eats);
@@ -2904,6 +2959,24 @@ function feed() {
       if (have[y]) have[y][x] += amt;
     }
     pendingFood = new Map();
+  }
+  for (const n of nations) {
+    let food = n.stores || 0;
+    if (food < 20) continue;
+    const short = [];
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (owner[y][x] !== n.id || need[y][x] <= have[y][x]) continue;
+      short.push([x, y, need[y][x] - have[y][x]]);
+    }
+    short.sort((a, b) => b[2] - a[2]);
+    for (const [x, y, gap] of short) {
+      if (food <= 0) break;
+      const give = Math.min(food, gap);
+      have[y][x] += give;
+      if (surplus[y][x] > 0 && have[y][x] > need[y][x]) surplus[y][x] = Math.max(0, surplus[y][x] - give);
+      food -= give;
+    }
+    n.stores = food;
   }
   const places = cities.slice().sort((a, b) => tierAt(a.rank) - tierAt(b.rank));
   for (const c of places) {
@@ -2965,6 +3038,19 @@ function feed() {
       const war = a && b && (a.atWar.has(b.id) || b.atWar.has(a.id));
       if (war) {
         if (b) b.grain += grain * 0.35;
+        grain = 0;
+      } else if (a && b && pactOn(a, b.id) && grain > 80) {
+        const ask = goodPrice("grain", grain, b);
+        const pay = Math.min(ask, Math.max(0, (b.treasury || 0) - 30));
+        if (pay >= 4) {
+          b.treasury -= pay;
+          a.treasury = Math.min(24000, (a.treasury || 0) + pay);
+          a.exports = (a.exports || 0) + pay;
+          b.imports = (b.imports || 0) + pay;
+          a.lastTrade = Math.round(grain) + " grain downriver to " + b.name + " · " + pay + " coin";
+          b.lastTrade = Math.round(grain) + " grain downriver from " + a.name + " · " + pay + " coin";
+          inbound[ny][nx] += grain;
+        } else a.grain = (a.grain || 0) + grain;
         grain = 0;
       } else if (a && b && pactOn(a, b.id)) {
         inbound[ny][nx] += grain;

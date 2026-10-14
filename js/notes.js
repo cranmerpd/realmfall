@@ -1,5 +1,14 @@
-const VERSION = "0.32";
+const VERSION = "0.33";
 const HISTORY = [
+  {
+    v: "0.33",
+    date: "14 Oct 2026",
+    items: [
+      "Tax is a share of the product. GDP is the harvest, what was cut or dug, what the cities made, and the trade of that year. A head count is no longer the tax.",
+      "A sale is part of that product. The buyer pays coin and receives the goods. Grain bought abroad is eaten by the hungry provinces. The price rises when the buyer is short.",
+      "Every people still begins as a monarchy. A fed country keeps its crown. A hungry country that keeps paying, or a coast that lives by trade and resents the customs, can throw the crown out. It is not common, and it is not impossible."
+    ]
+  },
   {
     v: "0.32",
     date: "14 Oct 2026",

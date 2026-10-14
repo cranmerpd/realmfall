@@ -519,22 +519,30 @@ function realmCountry(n) {
 }
 function realmCoin(n) {
   const rate = Math.round(taxRate(n) * 100);
-  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard, and pays the army with it. Hungry people resent the levy."
-    : n.gov === "Republic" ? "A republic taxes lightly. Prosperity is the country itself, not the treasury."
-    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly and takes its coin from the ports."
-    : n.gov === "Theocracy" ? "A theocracy takes a tithe. It sits worse where the cult is not the faith of the people."
-    : "A monarchy taxes the produce and is judged by whether the treasury can still pay.";
-  return row("Treasury", fmt(n.treasury))
-    + row("Tax", rate + "% · " + fmt(n.taxTake) + " this year")
+  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard. The levy is a share of what the country produced and sold. Hungry people resent it."
+    : n.gov === "Republic" ? "A republic taxes lightly. The tax is a share of the product, not a tax on each head."
+    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly. Trade enlarges what is taxed, and the ports keep the rest."
+    : n.gov === "Theocracy" ? "A theocracy takes a tithe of the product. It sits worse where the cult is not the faith of the people."
+    : "A monarchy taxes the harvest and whatever was sold. A hungry country that keeps paying will not bear the crown forever.";
+  const balance = (n.lastExports || 0) - (n.lastImports || 0);
+  return row("GDP", fmt(n.gdp))
+    + row("Tax", rate + "% of GDP · " + fmt(n.taxTake))
+    + row("Treasury", fmt(n.treasury))
+    + row("Exports", fmt(n.lastExports))
+    + row("Imports", fmt(n.lastImports))
+    + row("Trade balance", (balance >= 0 ? "+" : "") + fmt(balance))
     + row("Spent on arms", fmt(n.spent))
     + row("Prosperity", fmt(n.wealth))
+    + row("Harvest", fmt(n.yield))
+    + row("City craft", fmt(n.craft))
     + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : "") + ((n.age || 0) < 1 ? " · not yet worked" : ""))
     + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet smelted" : ""))
     + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : "") + ((n.age || 0) < 3 ? " · not yet drawn" : ""))
     + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : "") + ((n.age || 0) < 4 ? " · not yet worked" : ""))
-    + row("Grain at the ports", fmt(n.grain))
+    + row("Grain for sale", fmt(n.grain))
+    + row("Grain bought", fmt(n.stores))
     + row("Last trade", n.lastTrade || "None")
-    + '<p class="quiet-line">' + why + ' Timber and ore far from a river, a coast, or a town barely reach the treasury. A broke realm settles less, fights worse, and loses people to anywhere that can pay.</p>';
+    + '<p class="quiet-line">' + why + ' A sale moves goods one way and coin the other. Grain bought abroad is eaten. The tax is taken from the whole product, including trade, not from a count of heads.</p>';
 }
 
 function realmRule(n) {
