@@ -54,6 +54,7 @@ function generate() {
   chronicle(year, "No faith is yet spoken. The land beyond " + name + " is empty.");
   acc = 0;
   recount();
+  settleRanks();
   render();
   drawUI();
 }
@@ -75,7 +76,7 @@ function found(x, y, name, color, why, gov, faithId, parent, seatRank) {
   };
   seatLeader(n);
   nations.push(n);
-  const seat = placeCity(x, y, nameCity(), seatRank || "city");
+  const seat = placeCity(x, y, nameCity(), seatRank || "village");
   n.seat = seat.id;
   n.capital = { x, y };
   if (grid[y] && grid[y][x] === LAND) claim(x, y, id);
@@ -93,7 +94,7 @@ function claim(x, y, id) {
       const keeps = [0.9, 0.8, 0.66, 0.56, 0.48];
       const seat = city && nations.some(n => n.seat === city.id && n.capital && n.capital.x === x && n.capital.y === y);
       const keep = !city ? 0.93 : seat ? Math.min(0.52, keeps[tier]) : keeps[tier];
-      pop[y][x] = Math.max(160, Math.round(pop[y][x] * keep));
+      pop[y][x] = Math.max(0, Math.round(pop[y][x] * keep));
     }
     prev[y][x] = owner[y][x];
   }
@@ -550,10 +551,10 @@ function step() {
 
 const TIERS = [
   { id: "village", at: 0 },
-  { id: "town", at: 900 },
-  { id: "city", at: 4000 },
-  { id: "great city", at: 14000 },
-  { id: "metropolis", at: 26000 }
+  { id: "town", at: 1000 },
+  { id: "city", at: 40000 },
+  { id: "great city", at: 250000 },
+  { id: "metropolis", at: 1000000 }
 ];
 function tierAt(rank) {
   const i = TIERS.findIndex(t => t.id === rank);
@@ -591,7 +592,6 @@ function placeCity(x, y, name, rank) {
   }
   c = { id: nextCity++, name, x, y, rank: rank || "town" };
   cities.push(c);
-  if (pop && pop[y] && rank === "city" && (pop[y][x] || 0) < 1800) pop[y][x] = 1800 + ri(500);
   return c;
 }
 
@@ -653,9 +653,8 @@ function growCities() {
     const realm = byId(owner[y][x]);
     if (!realm || realm.atWar.size || founded.has(realm.id)) continue;
     const kind = siteKind(x, y);
-    if (kind === "inland" && (pop[y][x] || 0) < 160) continue;
-    const gap = kind === "mouth" || kind === "river" ? 5 : 6;
-    if (cities.some(c => Math.hypot(c.x - x, c.y - y) < gap)) continue;
+    if (kind === "inland" && (pop[y][x] || 0) < 80) continue;
+    if (cities.some(c => Math.max(Math.abs(c.x - x), Math.abs(c.y - y)) <= 1)) continue;
     let hinter = 0;
     for (let yy = y - 4; yy <= y + 4; yy++) for (let xx = x - 4; xx <= x + 4; xx++) {
       if (yy < 0 || xx < 0 || yy >= ROWS || xx >= COLS || grid[yy][xx] !== LAND || owner[yy][xx] !== realm.id) continue;
@@ -743,7 +742,7 @@ function considerPolity() {
 function relocateSeat(n, lost, cells) {
   const set = new Set(cells.map(([x, y]) => key(x, y)));
   const taker = lost ? byId(owner[lost.y][lost.x]) : null;
-  if (lost && pop[lost.y]) pop[lost.y][lost.x] = Math.max(160, pop[lost.y][lost.x] || 0);
+  if (lost && pop[lost.y] && (pop[lost.y][lost.x] || 0) < 1) pop[lost.y][lost.x] = 0;
   const shock = n.gov === "Dictatorship" ? 40 : n.gov === "Monarchy" || n.gov === "Theocracy" ? 36 : 28;
   n.legitimacy = Math.max(6, (n.legitimacy || 40) - shock);
   n.stability = Math.max(5, (n.stability || 30) - 24);
@@ -812,20 +811,22 @@ function cellCut(x, y) {
   if (!kind || grid[y][x] !== LAND || owner[y][x] < 0) return null;
   const n = byId(owner[y][x]);
   const souls = (pop[y] && pop[y][x]) || 0;
-  if (!n || souls < 280) return null;
-  let work = Math.min(1, souls / 2000);
-  if (n.parched && basin && basin[y][x] && kind === 1) work *= 0.5;
+  const hands = souls * 0.58;
+  if (!n || hands < 8) return null;
+  let access = 1;
+  if (n.parched && basin && basin[y][x] && kind === 1) access *= 0.55;
   const front = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== n.id);
-  if (front) work *= 0.55;
+  if (front) access *= 0.7;
   const onWater = (river && river[y][x] > 8) || (coast && coast[y][x]);
-  const town = cities.some(c => (c.x === x && c.y === y) || (owner[c.y] && owner[c.y][c.x] === n.id && Math.hypot(c.x - x, c.y - y) <= 3));
-  work *= onWater || cities.some(c => c.x === x && c.y === y) ? 1 : town ? 0.7 : 0.4;
-  if (n.gov === "Theocracy" && belief && belief[y][x] && (belief[y][x][n.faith] || 0) < 0.4) work *= 0.45;
+  if (!onWater && !cities.some(c => c.x === x && c.y === y)) access *= 0.75;
+  if (n.gov === "Theocracy" && belief && belief[y][x] && (belief[y][x][n.faith] || 0) < 0.4) access *= 0.6;
+  const tool = [1, 1.15, 1.35, 1.6, 1.9][Math.min(4, n.age || 0)];
+  const labor = Math.sqrt(hands);
   let cutKind = 0, cutAmt = 0;
-  if (kind === 1 && (n.age || 0) >= 1) { cutAmt = 16 * work; cutKind = 1; }
-  else if (kind === 2 && (n.age || 0) >= 2) { cutAmt = 11 * work; cutKind = 2; }
-  else if (kind === 3 && (n.age || 0) >= 3) { cutAmt = 8 * work; cutKind = 3; }
-  else if (kind === 4 && (n.age || 0) >= 4) { cutAmt = 4 * work; cutKind = 4; }
+  if (kind === 1 && (n.age || 0) >= 1) { cutAmt = 0.9 * labor * access * tool; cutKind = 1; }
+  else if (kind === 2 && (n.age || 0) >= 2) { cutAmt = 0.55 * labor * access * tool; cutKind = 2; }
+  else if (kind === 3 && (n.age || 0) >= 3) { cutAmt = 0.32 * labor * access * tool; cutKind = 3; }
+  else if (kind === 4 && (n.age || 0) >= 4) { cutAmt = 0.16 * labor * access * tool; cutKind = 4; }
   if (!cutKind) return null;
   return { n, cutKind, cutAmt };
 }
@@ -852,10 +853,10 @@ function extractLevy() {
     }
   }
   for (const n of nations) {
-    n.timber = Math.min(5000, n.timber || 0);
-    n.ore = Math.min(3500, n.ore || 0);
-    n.oil = Math.min(2000, n.oil || 0);
-    n.silicon = Math.min(600, n.silicon || 0);
+    n.timber = n.timber || 0;
+    n.ore = n.ore || 0;
+    n.oil = n.oil || 0;
+    n.silicon = n.silicon || 0;
     const grainValue = (n.yield || 0) * 0.0045;
     let craft = 0;
     for (const c of cities) {
@@ -1014,6 +1015,10 @@ function plant() {
     if (c > 0.72) s *= 0.4;
     if (!(fields && fields[y][x])) s = 0.55 + s * 0.45;
     stand[y][x] = Math.max(0.08, Math.min(1, s));
+    if (pop && (pop[y][x] || 0) >= 20 && fields && !fields[y][x] && !(resource && resource[y][x])) {
+      const e = elev && elev[y] ? elev[y][x] : 0;
+      if (e <= 0.64 && c <= 0.72) fields[y][x] = 1;
+    }
   }
 }
 
@@ -1070,19 +1075,18 @@ function markParched() {
 }
 
 function settleFrontier(n, x, y) {
-  const hungry = n.hungry || 0;
-  if (hungry > 0.48) return false;
   if ((pop[y][x] || 0) > 0) return false;
-  const forced = n.gov === "Dictatorship" && hungry <= 0.14 && (n.legitimacy || 0) > 48;
+  const forced = n.gov === "Dictatorship" && (n.hungry || 0) <= 0.14 && (n.legitimacy || 0) > 48;
   let donor = null, best = 0;
   for (const [nx, ny] of neighbors(x, y)) {
     if (owner[ny][nx] !== n.id) continue;
+    if (ration && ration[ny] && ration[ny][nx] < 0.8) continue;
     const souls = pop[ny][nx] || 0;
     if (souls > best) { best = souls; donor = [nx, ny]; }
   }
-  if (!donor || best < 120) return false;
-  let move = Math.min(28, Math.round(best * 0.06));
-  if (move < 8 || best - move < 80) return false;
+  if (!donor || best < 70) return false;
+  let move = Math.min(24, Math.round(best * 0.05));
+  if (move < 6 || best - move < 24) return false;
   const locals = pop[y][x] || 0;
   pop[donor[1]][donor[0]] = best - move;
   pop[y][x] = locals + move;
@@ -1100,8 +1104,8 @@ function faithTop(shares) {
 }
 
 function admits(n, x, y) {
-  if (!n || n.atWar.size || (n.hungry || 0) > 0.12) return false;
-  if ((pop[y][x] || 0) >= capacity(x, y) * 0.92) return false;
+  if (!n || n.atWar.size) return false;
+  if (ration && ration[y] && ration[y][x] < 0.8) return false;
   if (n.gov === "Dictatorship") return false;
   if (n.gov === "Theocracy") return !!(belief && belief[y] && belief[y][x] && (belief[y][x][n.faith] || 0) > 0.4);
   if (n.gov === "Oligarchy") return !!((coast && coast[y][x]) || (river && river[y][x] >= 12));
@@ -1110,44 +1114,41 @@ function admits(n, x, y) {
 }
 
 function immigrate() {
-  if (!pop || !owner) return;
-  const pace = [1, 0.7, 0.4, 0.2][season] || 0.3;
+  if (!pop || !owner || season === 3) return;
+  const pace = [1, 0.7, 0.45, 0.15][season] || 0.3;
   for (const n of nations) {
     if (!nations.includes(n)) continue;
-    let budget = Math.round((n.people || 0) * 0.0016 * pace);
-    if (budget < 12) continue;
     let walked = 0;
-    for (let y = 0; y < ROWS && budget >= 10; y++) for (let x = 0; x < COLS && budget >= 10; x++) {
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       if (owner[y][x] !== n.id) continue;
       const souls = pop[y][x] || 0;
-      const room = capacity(x, y);
-      const extra = souls - room * 0.8;
-      const starved = ration && ration[y] && ration[y][x] < 0.68;
-      if (extra < 24 && !starved) continue;
+      if (souls < 24) continue;
+      const ratio = ration && ration[y] ? ration[y][x] : 1;
+      if (!(ratio < 0.86)) continue;
       if (n.capital && n.capital.x === x && n.capital.y === y) continue;
-      const edge = neighbors(x, y).some(([nx, ny]) => grid[ny][nx] === LAND && owner[ny][nx] !== n.id);
-      if (!edge) continue;
-      let move = starved ? Math.round(souls * 0.015 * pace) : Math.round(extra * 0.16 * pace);
-      move = Math.min(move, budget, souls - Math.round(Math.max(160, room * 0.75)), 24);
-      if (move < 10) continue;
+      let move = Math.round(souls * (0.86 - ratio) * 0.4 * pace);
+      move = Math.min(move, Math.round(souls * 0.12));
+      if (move < 2) continue;
       let best = null, bestS = 0;
       for (const [nx, ny] of neighbors(x, y)) {
-        if (grid[ny][nx] !== LAND || owner[ny][nx] === n.id || coldAt(nx, ny) > 0.74) continue;
+        if (grid[ny][nx] !== LAND || coldAt(nx, ny) > 0.78) continue;
         const o = owner[ny][nx];
-        let s = 0;
+        let sc = 0;
         if (o < 0) {
-          s = 3;
-          if (fields && fields[ny][nx]) s += 1.5;
-          if (river && river[ny][nx] > 8) s += 0.8;
-          if ((pop[ny][nx] || 0) > 20) s += 1.2;
-        } else if (starved || extra > room * 0.15) {
+          sc = 3;
+          if (fields && fields[ny][nx]) sc += 1;
+          if (river && river[ny][nx] > 8) sc += 0.6;
+        } else if (o !== n.id) {
           const host = byId(o);
           if (!host || n.atWar.has(o) || !admits(host, nx, ny)) continue;
-          s = 2.2;
+          const there = ration && ration[ny] ? ration[ny][nx] : 1;
+          if (there < ratio + 0.05) continue;
+          sc = 2;
+        } else {
+          const there = ration && ration[ny] ? ration[ny][nx] : 1;
+          if (there > ratio + 0.08) sc = 1.5;
         }
-        if (!s) continue;
-        s += rnd() * 0.3;
-        if (s > bestS) { bestS = s; best = [nx, ny]; }
+        if (sc > bestS) { bestS = sc; best = [nx, ny]; }
       }
       if (!best) continue;
       const [nx, ny] = best;
@@ -1155,14 +1156,13 @@ function immigrate() {
       pop[y][x] = souls - move;
       pop[ny][nx] = already + move;
       if (belief && belief[y] && belief[y][x]) pourFaith(nx, ny, belief[y][x], already, move);
-      budget -= move;
       if (owner[ny][nx] < 0) walked += move;
-      else {
+      else if (owner[ny][nx] !== n.id) {
         const host = byId(owner[ny][nx]);
         if (host && belief && belief[y][x] && faithTop(belief[y][x]) !== (host.creed || -1)) host.unrest = (host.unrest || 0) + 0.25;
       }
     }
-    if (walked >= 30 && (!n.departNote || year >= n.departNote)) {
+    if (walked >= 20 && (!n.departNote || year >= n.departNote)) {
       n.departNote = year + 22;
       chronicle(year, "People leave " + n.name + " and settle land the crown does not hold.");
     }
@@ -1170,7 +1170,6 @@ function immigrate() {
 }
 
 function grow(n) {
-  if ((n.hungry || 0) > 0.45) return;
   if (season === 3) return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
@@ -1181,7 +1180,7 @@ function grow(n) {
       if (owner[ny][nx] !== n.id) continue;
       donor = Math.max(donor, pop[ny][nx] || 0);
     }
-    if (donor < 150) { m.score = -1; continue; }
+    if (donor < 70) { m.score = -1; continue; }
     const field = !!(fields && fields[m.ty] && fields[m.ty][m.tx]);
     const cold = coldAt(m.tx, m.ty);
     let want = m.friends * 1.5;
@@ -1488,8 +1487,8 @@ function warPush(n) {
           foe.timber = Math.max(0, (foe.timber || 0) - wood);
           foe.ore = Math.max(0, (foe.ore || 0) - metal);
           n.treasury = Math.min(12000, (n.treasury || 0) + loot);
-          n.timber = Math.min(5000, (n.timber || 0) + wood);
-          n.ore = Math.min(3500, (n.ore || 0) + metal);
+          n.timber = (n.timber || 0) + wood;
+          n.ore = (n.ore || 0) + metal;
           chronicle(year, n.name + " sacks the " + city.rank + " of " + city.name + ". " + foe.name + " is thinner for it.");
         } else foe.stability -= 0.55;
       } else {
@@ -1575,10 +1574,10 @@ function settleWars() {
 
 function seaRange(n) {
   const s = n.sea || 0;
-  if (s < 0.3) return 0;
-  if (s < 0.55) return 4;
-  if (s < 0.78) return 11;
-  return 34;
+  if (s < 0.2) return 0;
+  if (s < 0.38) return 8;
+  if (s < 0.58) return 20;
+  return 40 + (n.age || 0) * 22 + Math.floor((s - 0.58) * 50);
 }
 
 function seaWord(n) {
@@ -1745,7 +1744,7 @@ function landfalls(x, y, range, selfId) {
   }
   const hits = [];
   const hitSeen = new Set();
-  while (qh < q.length && seen.size < 1600) {
+  while (qh < q.length && seen.size < 12000) {
     const [cx, cy, d] = q[qh++];
     for (const [nx, ny] of neighbors(cx, cy)) {
       const k = key(nx, ny);
@@ -1807,13 +1806,13 @@ function realmNear(x, y, rad) {
 
 function sailTo(n, port, dest) {
   const from = pop[port.y][port.x] || 0;
-  let party = Math.round(from * (n.gov === "Dictatorship" ? 0.12 : 0.07));
-  party = Math.max(36, Math.min(from - 180, party));
-  if (party < 36) return false;
+  let party = Math.round(from * (n.gov === "Dictatorship" ? 0.1 : 0.06));
+  party = Math.min(party, Math.max(0, from - 30));
+  if (party < 20) return false;
   const drownRate = Math.min(0.45, 0.1 + dest.d * 0.012) * (season === 3 ? 1.45 : 1);
   const drown = Math.round(party * drownRate);
   const arrive = party - drown;
-  if (arrive < 24) return false;
+  if (arrive < 12) return false;
   pop[port.y][port.x] = from - party;
   if (n.gov === "Dictatorship") n.unrest = (n.unrest || 0) + 1.4;
   const locals = pop[dest.y][dest.x] || 0;
@@ -1828,21 +1827,15 @@ function sailTo(n, port, dest) {
     }
   }
   if (!foe && !landHolds(n.id, dest.x, dest.y)) {
-    if (realmNear(dest.x, dest.y, 12)) {
-      pop[port.y][port.x] = from;
-      return false;
-    }
-    const babyName = nameRealm();
-    const baby = found(dest.x, dest.y, babyName, colors[ri(colors.length)], "Ships from " + n.name + " settle a shore they cannot walk to. " + babyName + " is a people of its own, not a province of " + n.name + ".", "Monarchy", topFaith(port.x, port.y), n, "village");
-    baby.age = 0;
-    baby.sea = Math.max(0.32, Math.min(0.55, (n.sea || 0.3) * 0.6));
-    baby.treasury = 80;
-    n.treasury = Math.max(0, (n.treasury || 0) - 40);
-    pop[dest.y][dest.x] = arrive;
-    if (belief && belief[port.y] && belief[port.y][port.x]) belief[dest.y][dest.x] = belief[port.y][port.x].slice();
-    const food = Math.min(Math.round(arrive * 1.25), n.grain || 0);
+    pop[dest.y][dest.x] = locals + arrive;
+    if (belief && belief[port.y] && belief[port.y][port.x]) pourFaith(dest.x, dest.y, belief[port.y][port.x], locals, arrive);
+    claim(dest.x, dest.y, n.id);
+    if (fields && !(resource && resource[dest.y][dest.x]) && coldAt(dest.x, dest.y) <= 0.72) fields[dest.y][dest.x] = 1;
+    const food = Math.min(Math.round(arrive * 1.1), n.grain || 0);
     n.grain = Math.max(0, (n.grain || 0) - food);
-    baby.grain = food;
+    if (!granary) granary = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    granary[dest.y][dest.x] = (granary[dest.y][dest.x] || 0) + food;
+    chronicle(year, "Ships from " + n.name + " take a shore the crown cannot walk to. The people who left the port settle it.");
     return true;
   }
   const flight = foe ? 0.45 : 0.22;
@@ -1860,18 +1853,20 @@ function sailTo(n, port, dest) {
 
 function considerVoyage(n) {
   const range = seaRange(n);
-  if (!range || (n.hungry || 0) > 0.22 || n.pops < 8) return;
+  if (!range || n.pops < 4) return;
   const base = n.gov === "Oligarchy" ? 0.5 : n.gov === "Republic" ? 0.38 : n.gov === "Dictatorship" ? 0.2 : 0.16;
   const share = [0.3, 0.34, 0.24, 0.12][season] || 0.25;
-  if (rnd() > base * share) return;
+  let chance = base * share;
+  if ((n.hungry || 0) > 0.2) chance *= 0.4;
+  if (rnd() > chance) return;
   const port = portOf(n);
   if (!port) return;
   const hits = landfalls(port.x, port.y, range, n.id);
-  let best = null, bestS = -1;
+  let best = null, bestS = -1e9;
   for (const h of hits) {
     let s = 0;
-    if (h.owner < 0) s = 4.2 - h.d * 0.12;
-    else if (n.atWar.has(h.owner)) s = 3.4 - h.d * 0.08;
+    if (h.owner < 0) s = 300 - h.d;
+    else if (n.atWar.has(h.owner)) s = 120 - h.d * 0.5;
     else continue;
     if (river && river[h.y][h.x] >= 12) s += 1.4;
     if (n.gov === "Theocracy" && belief && belief[h.y][h.x]) {
@@ -1883,7 +1878,7 @@ function considerVoyage(n) {
     s += rnd() * 0.4;
     if (s > bestS) { bestS = s; best = h; }
   }
-  if (best && bestS > 1.2) sailTo(n, port, best);
+  if (best) sailTo(n, port, best);
 }
 
 function unitCount(id, kind) {
@@ -2213,10 +2208,10 @@ function takeCargo(n, offer) {
 
 function giveStock(who, good, amt) {
   if (!who || !(amt > 0)) return;
-  if (good === "timber") who.timber = Math.min(5000, (who.timber || 0) + amt);
-  else if (good === "ore") who.ore = Math.min(3500, (who.ore || 0) + amt);
-  else if (good === "oil") who.oil = Math.min(2000, (who.oil || 0) + amt);
-  else if (good === "silicon") who.silicon = Math.min(600, (who.silicon || 0) + amt);
+  if (good === "timber") who.timber = (who.timber || 0) + amt;
+  else if (good === "ore") who.ore = (who.ore || 0) + amt;
+  else if (good === "oil") who.oil = (who.oil || 0) + amt;
+  else if (good === "silicon") who.silicon = (who.silicon || 0) + amt;
   else who.grain = (who.grain || 0) + amt;
 }
 
@@ -2279,10 +2274,10 @@ function merchantCap(n) {
 function restoreCargo(n, u) {
   if (!n || !(u.cargo > 0)) { if (u) u.cargo = 0; return; }
   if (u.good === "grain") n.grain = (n.grain || 0) + u.cargo;
-  else if (u.good === "timber") n.timber = Math.min(5000, (n.timber || 0) + u.cargo);
-  else if (u.good === "ore") n.ore = Math.min(3500, (n.ore || 0) + u.cargo);
-  else if (u.good === "oil") n.oil = Math.min(2000, (n.oil || 0) + u.cargo);
-  else if (u.good === "silicon") n.silicon = Math.min(600, (n.silicon || 0) + u.cargo);
+  else if (u.good === "timber") n.timber = (n.timber || 0) + u.cargo;
+  else if (u.good === "ore") n.ore = (n.ore || 0) + u.cargo;
+  else if (u.good === "oil") n.oil = (n.oil || 0) + u.cargo;
+  else if (u.good === "silicon") n.silicon = (n.silicon || 0) + u.cargo;
   u.cargo = 0;
 }
 
@@ -2380,10 +2375,10 @@ function stepCog(u) {
     }
     if (next < 0) {
       if (u.back) {
-        if (u.backGood === "ore") n.ore = Math.min(3500, (n.ore || 0) + u.back);
-        else if (u.backGood === "oil") n.oil = Math.min(2000, (n.oil || 0) + u.back);
-        else if (u.backGood === "silicon") n.silicon = Math.min(600, (n.silicon || 0) + u.back);
-        else n.timber = Math.min(5000, (n.timber || 0) + u.back);
+        if (u.backGood === "ore") n.ore = (n.ore || 0) + u.back;
+        else if (u.backGood === "oil") n.oil = (n.oil || 0) + u.back;
+        else if (u.backGood === "silicon") n.silicon = (n.silicon || 0) + u.back;
+        else n.timber = (n.timber || 0) + u.back;
         u.back = 0;
         u.backGood = "";
       }
@@ -2879,7 +2874,8 @@ function absorbTiny() {
     const cells = cellsOf(n.id);
     if (!cells.length) continue;
     const who = annex(cells);
-    chronicle(year, who ? n.name + " is too small to stand. " + who.name + " absorbs it." : n.name + " fades into empty land.");
+    if (!who) for (const [x, y] of cells) owner[y][x] = -1;
+    chronicle(year, who ? n.name + " is too small to stand. " + who.name + " absorbs it." : n.name + " fades. The people remain on land no crown holds.");
     n.pops = 0;
   }
   nations = nations.filter(n => n.pops > 0);
@@ -2929,54 +2925,46 @@ function demography() {
   if (!pop) return;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND) continue;
-    if ((pop[y][x] || 0) <= 0) continue;
+    let p = pop[y][x] || 0;
+    if (p <= 0) continue;
+    const ate = ration && ration[y] ? ration[y][x] : 1;
+    const fed = Math.max(0, Math.min(1, ate == null ? 1 : ate));
+    const space = 1 / (1 + p / 1200000);
+    const birth = 0.01 * fed * space;
+    let death = 0.005;
+    if (fed < 0.98) death += (1 - fed) * 0.03;
     const id = owner[y][x];
     const n = id >= 0 ? byId(id) : null;
-    const K = capacity(x, y);
-    let r = 0.003;
-    if (n) {
-      r *= rules(n.gov).grow;
-      const leg = n.legitimacy || 60;
-      if (leg > 72) r *= 1.12;
-      if (leg < 42) r *= 0.66;
-      if ((n.treasury || 0) < 30) r *= 0.82;
-      if (resource && resource[y][x]) r *= 1.08;
-      if (fields && fields[y][x] && (!ration || ration[y][x] > 0.94)) r *= 1.55;
-      if (ration && ration[y][x] < 0.82) r *= 0.28;
-      if (n.gov === "Dictatorship" && (n.hungry || 0) > 0.06) r *= 0.84;
-      if (n.gov === "Theocracy" && n.faith >= 0 && belief && belief[y] && belief[y][x]) r *= 0.5 + (belief[y][x][n.faith] || 0);
-      if (n.gov === "Dictatorship" && n.atWar.size) r *= 0.7;
-    } else if (ration && ration[y][x] < 0.82) r *= 0.28;
-    let p = pop[y][x];
-    p += p * r * (1 - p / K);
     if (n && n.atWar.size) {
       const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
-      p *= edge ? 0.993 : 0.9985;
+      if (edge) death += 0.004;
     }
+    p = p + p * birth - p * death;
     pop[y][x] = p < 0.5 ? 0 : p;
   }
   settleRanks();
 }
 
 function landYield(x, y) {
+  const souls = (pop && pop[y] && pop[y][x]) || 0;
+  const hands = souls * 0.58;
+  if (hands < 1) return 0;
   const field = fields && fields[y] && fields[y][x];
-  let yld = field ? 1750 : 340;
+  let soil = field ? 1 : 0.12;
   const kind = siteKind(x, y);
-  if (field && (kind === "river" || kind === "mouth")) yld += 680;
-  if (field && kind === "mouth") yld += 180;
-  if (field && kind === "coast") yld += 100;
-  yld *= stand && stand[y] ? stand[y][x] : (1.04 - coldAt(x, y) * 0.5);
+  if (field && (kind === "river" || kind === "mouth")) soil *= 1.45;
+  if (field && kind === "coast") soil *= 1.1;
+  if (elev && elev[y] && elev[y][x] > 0.58) soil *= 0.72;
+  soil *= stand && stand[y] ? stand[y][x] : Math.max(0.35, 1.04 - coldAt(x, y) * 0.5);
   const id = owner[y][x];
   const n = id >= 0 ? byId(id) : null;
+  const tool = n ? [1, 1.2, 1.45, 1.75, 2.1][Math.min(4, n.age || 0)] : 1;
   if (n && n.atWar.size) {
     const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
-    yld *= edge ? 0.6 : 0.88;
+    soil *= edge ? 0.7 : 0.9;
   }
-  if (cities.some(c => c.x === x && c.y === y)) yld *= 0.25;
-  const souls = (pop && pop[y] && pop[y][x]) || 0;
-  if (field && souls > 400) yld *= 1 + Math.min(1.15, (souls - 400) / 2000);
-  if (n) yld *= [1, 1.35, 1.8, 2.35, 3.1][Math.min(4, n.age || 0)];
-  return Math.max(40, yld);
+  if (cities.some(c => c.x === x && c.y === y)) soil *= 0.35;
+  return soil * tool * 83 * Math.sqrt(hands);
 }
 
 function marketReach() {
@@ -3016,21 +3004,21 @@ function seekWork() {
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (owner[y][x] < 0) continue;
     const souls = pop[y][x] || 0;
-    if (souls < 70) continue;
+    if (souls < 16) continue;
     const wage = (purse[y][x] || 0) / souls;
-    let best = null, bestW = wage * 1.05 + 0.001;
+    let best = null, bestW = wage * 1.08 + 0.001;
     for (const [nx, ny] of neighbors(x, y)) {
       if (owner[ny][nx] !== owner[y][x]) continue;
       const there = pop[ny][nx] || 0;
-      const w = (purse[ny][nx] || 0) / Math.max(50, there);
+      const w = (purse[ny][nx] || 0) / Math.max(8, there);
       if (w > bestW) { bestW = w; best = [nx, ny, there]; }
     }
     if (!best) continue;
     const gap = bestW / Math.max(wage, 0.0008) - 1;
-    const frac = Math.min(0.12, Math.max(0.015, gap * 0.12)) * pace;
+    const frac = Math.min(0.08, Math.max(0.01, gap * 0.1)) * pace;
     let move = Math.round(souls * frac);
-    move = Math.min(move, souls - 40, 90);
-    if (move < 4) continue;
+    move = Math.min(move, Math.round(souls * 0.2));
+    if (move < 2) continue;
     pop[y][x] = souls - move;
     pop[best[1]][best[0]] = best[2] + move;
     if (belief && belief[y] && belief[y][x]) pourFaith(best[0], best[1], belief[y][x], best[2], move);
@@ -3101,7 +3089,7 @@ function feed() {
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const cut = cellCut(x, y);
     if (!cut) continue;
-    purse[y][x] = (purse[y][x] || 0) + cut.cutAmt * goodsPay[cut.cutKind];
+    purse[y][x] = (purse[y][x] || 0) + Math.sqrt(cut.cutAmt) * goodsPay[cut.cutKind] * 0.35;
   }
   for (const n of nations) {
     if (!nations.includes(n)) continue;
@@ -3111,76 +3099,82 @@ function feed() {
       if (owner[y][x] !== n.id) continue;
       const city = placeAt[y][x];
       const people = pop[y][x] || 0;
-      const eats = people * (city ? [1.04, 1.12, 1.32, 1.52, 1.72][tierAt(city.rank)] : 1);
+      const eats = people;
       const have = granary[y][x] || 0;
-      const local = Math.min(have, eats);
       granary[y][x] = 0;
-      const spare = have - local;
-      if (spare > 0) n.grain = (n.grain || 0) + spare;
       const access = reachPay(reach, x, y);
       const agePay = 1 + (n.age || 0) * 0.08;
       if (fields && fields[y][x]) {
-        const crop = 14 + Math.min(22, spare / 180);
-        purse[y][x] = (purse[y][x] || 0) + crop * access * agePay;
+        purse[y][x] = (purse[y][x] || 0) + (8 + Math.min(30, have / 200)) * access * agePay;
       } else if (!city) {
         purse[y][x] = (purse[y][x] || 0) + 3.5 * access * agePay;
       }
       if (city) {
         const seat = n.seat === city.id;
-        const budget = (seat ? 150 : 48) * agePay * (1 + Math.sqrt(Math.max(0, n.people || 0)) / 90);
+        const budget = (seat ? 22 : 10) * agePay * (1 + Math.sqrt(Math.max(1, people)) / 30);
         purse[y][x] = (purse[y][x] || 0) + budget;
       }
-      provs.push({ x, y, eats, people, local, city });
+      let pri = 5;
+      if (n.gov === "Monarchy" || n.gov === "Dictatorship") pri = (n.capital && n.capital.x === x && n.capital.y === y) ? 0 : 10 + hypot(x, y, n.capital || { x, y });
+      else if (n.gov === "Oligarchy") pri = ((coast && coast[y][x]) || (river && river[y][x] > 11)) ? 0 : 30;
+      else if (n.gov === "Theocracy") {
+        const share = n.faith >= 0 && belief && belief[y] && belief[y][x] ? (belief[y][x][n.faith] || 0) : 0;
+        pri = 10 - share * 10;
+      }
+      provs.push({ x, y, eats, people, have, city, pri });
       need += eats;
       souls += people;
     }
-    let stock = n.grain || 0;
-    let unmet = 0;
-    for (const p of provs) unmet += Math.max(0, p.eats - p.local);
-    const scarce = stock + 0.5 < unmet;
-    let price = 0.04 * Math.max(0.55, (unmet > 0 ? unmet : need * 0.15) / Math.max(stock, 1));
-    if (scarce) price = Math.min(2.4, price * 1.15);
-    price = Math.round(price * 100) / 100;
-    n.grainPrice = price;
-    let unfed = 0;
     if (need <= 0) {
       n.hungry = 0;
-      n.grain = stock;
+      n.grainPrice = 0;
       continue;
     }
-    if (!scarce) {
+    if (n.gov === "Republic") {
+      let pool = n.grain || 0;
+      let unmet = 0;
       for (const p of provs) {
-        ration[p.y][p.x] = 1;
-        if (p.city) p.city.fed = 1;
-        const bill = Math.max(0, p.eats - p.local) * price;
-        const pay = Math.min(purse[p.y][p.x] || 0, bill * 0.35);
-        purse[p.y][p.x] = Math.max(0, (purse[p.y][p.x] || 0) - pay);
+        p.got = Math.min(p.have, p.eats);
+        const spare = p.have - p.got;
+        if (spare > 0) pool += spare;
+        else unmet += p.eats - p.got;
       }
-      stock -= unmet;
+      const share = unmet > 0 ? Math.min(1, pool / unmet) : 1;
+      for (const p of provs) {
+        const gap = Math.max(0, p.eats - p.got);
+        const give = gap * share;
+        p.got += give;
+        pool -= give;
+      }
+      n.grain = Math.max(0, pool);
     } else {
-      const buyers = provs.filter(p => p.eats - p.local > 0.5);
-      buyers.sort((a, b) => (purse[b.y][b.x] || 0) - (purse[a.y][a.x] || 0));
-      for (const p of provs) p.got = p.local;
-      for (const p of buyers) {
-        const gap = p.eats - p.got;
-        const afford = price > 0 ? (purse[p.y][p.x] || 0) / price : gap;
-        const buy = Math.max(0, Math.min(gap, stock, afford));
-        stock -= buy;
-        p.got += buy;
-        purse[p.y][p.x] = Math.max(0, (purse[p.y][p.x] || 0) - buy * price);
-      }
+      let pool = n.grain || 0;
+      for (const p of provs) pool += p.have;
+      provs.sort((a, b) => a.pri - b.pri);
       for (const p of provs) {
-        const ratio = p.eats > 1 ? Math.min(1, p.got / p.eats) : 1;
-        ration[p.y][p.x] = ratio;
-        if (p.city) p.city.fed = ratio;
-        if (ratio < 0.98) unfed += p.people * (1 - ratio);
+        const give = Math.min(pool, p.eats);
+        p.got = give;
+        pool -= give;
       }
+      n.grain = Math.max(0, pool);
     }
-    const keep = Math.max(need * 1.25, 500);
-    n.grain = Math.max(0, Math.min(stock, keep));
+    let unfed = 0;
+    for (const p of provs) {
+      const ratio = p.eats > 1 ? Math.min(1, (p.got || 0) / p.eats) : 1;
+      ration[p.y][p.x] = ratio;
+      if (p.city) p.city.fed = ratio;
+      if (ratio < 0.98) unfed += p.people * (1 - ratio);
+    }
+    const stock = n.grain || 0;
+    const scarce = stock + 0.5 < unfed;
+    let price = 0.04 * Math.max(0.55, (unfed > 0 ? unfed : need * 0.15) / Math.max(stock, 1));
+    if (scarce) price = Math.min(2.4, price * 1.15);
+    n.grainPrice = Math.round(price * 100) / 100;
     n.hungryPeople = unfed;
     n.hungry = souls ? unfed / souls : 0;
     n.hungerCause = unfed > souls * 0.02 ? "short" : "";
+    const keep = Math.max(need * 2, 50);
+    if ((n.grain || 0) > keep) n.grain = keep;
     floatSurplus(n);
   }
 }

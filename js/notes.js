@@ -1,5 +1,17 @@
-const VERSION = "0.38";
+const VERSION = "0.39";
 const HISTORY = [
+  {
+    v: "0.39",
+    date: "14 Oct 2026",
+    items: [
+      "Grain, timber, ore, oil, and silicon all rise with the number of people working that province. A later age raises what the same hands can draw from the land. Grain does not sit in a bottomless store: what is not eaten or kept for two years is gone.",
+      "Births and deaths follow whether people ate. A government does not grant extra children, and calling a place a city does not make room for more of them. A city is 40,000 people. A metropolis is a million on that square.",
+      "Who eats first follows the government. A republic feeds each province from its own harvest, then shares what is left. A monarchy or a dictatorship feeds the capital first. An oligarchy feeds the ports. A theocracy feeds the faithful.",
+      "A hungry province can still lose people, onto empty land or toward food. A fed border province can still send settlers. Hunger does not freeze the realm.",
+      "A ship can cross an ocean. The people who land are the people who left, and the shore becomes a province of the realm that sent them. A new realm still has to be raised by people living on land no crown holds.",
+      "Settlers clear farmland. Towns are not planted on adjacent squares."
+    ]
+  },
   {
     v: "0.38",
     date: "14 Oct 2026",
