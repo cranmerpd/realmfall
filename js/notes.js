@@ -1,5 +1,14 @@
-const VERSION = "0.34";
+const VERSION = "0.35";
 const HISTORY = [
+  {
+    v: "0.35",
+    date: "14 Oct 2026",
+    items: [
+      "People who leave are subtracted. People who arrive are those same people. Migration does not invent a population.",
+      "A crown expands when a border province is crowded and the empty land is worth sending people to. It sends them from that province. It does not paint a square where settlers already live.",
+      "Settlers can walk onto land no realm holds. That province grows by the people who come and by the children born there. A town can stand there before any crown does. When the town is a real population, those people raise a government, and that is a new country."
+    ]
+  },
   {
     v: "0.34",
     date: "14 Oct 2026",
