@@ -1,5 +1,14 @@
-const VERSION = "0.31";
+const VERSION = "0.32";
 const HISTORY = [
+  {
+    v: "0.32",
+    date: "14 Oct 2026",
+    items: [
+      "The seasons govern the harvest. Spring plants. A hot, dry summer can fail the rains, and a drought that has already begun is more likely to continue. Autumn is the harvest. Winter spends what was stored, and cold country loses more people.",
+      "War, trade, learning, settlement, and politics are not saved up for one season. They happen through the year. Winter still slows a march and drowns more of a winter voyage. It does not switch the world off.",
+      "No faith is on the map at the start, and there is no list of three waiting to be filled. A faith is born among a people, early and not often, the way a realm is born. It then spreads from the people who keep it to the people beside them. Later faiths are rarer. A theocracy can only preach a faith the people already follow."
+    ]
+  },
   {
     v: "0.31",
     date: "9 Oct 2026",

@@ -23,20 +23,49 @@ function norm3(s) {
   const t = (s[0] + s[1] + s[2]) || 1;
   return [s[0] / t, s[1] / t, s[2] / t];
 }
+function padShares(s) {
+  const n = faithNames ? faithNames.length : 0;
+  const out = [];
+  for (let i = 0; i < n; i++) out[i] = s && s[i] ? s[i] : 0;
+  return out;
+}
+function clampShares(s) {
+  const a = padShares(s);
+  let t = 0;
+  for (let i = 0; i < a.length; i++) t += a[i];
+  if (t > 1) for (let i = 0; i < a.length; i++) a[i] /= t;
+  return a;
+}
+function faithHeld(shares) {
+  if (!shares) return 0;
+  let m = 0;
+  for (let i = 0; i < shares.length; i++) if ((shares[i] || 0) > m) m = shares[i];
+  return m;
+}
 function topFaith(x, y) {
   const s = belief && belief[y] && belief[y][x];
-  if (!s) return 0;
-  return s[1] > s[0] ? (s[2] > s[1] ? 2 : 1) : (s[2] > s[0] ? 2 : 0);
+  if (!s) return -1;
+  let top = -1, best = 0.18;
+  for (let i = 0; i < s.length; i++) if ((s[i] || 0) > best) { best = s[i]; top = i; }
+  return top;
 }
 function mixFaithColor(shares) {
-  let top = 0;
-  if ((shares[1] || 0) > (shares[top] || 0)) top = 1;
-  if ((shares[2] || 0) > (shares[top] || 0)) top = 2;
-  let second = top === 0 ? 1 : 0;
-  for (let i = 0; i < 3; i++) if (i !== top && (shares[i] || 0) > (shares[second] || 0)) second = i;
+  if (!shares) return "#2a312e";
+  let top = -1, best = 0.12;
+  for (let i = 0; i < shares.length; i++) if ((shares[i] || 0) > best) { best = shares[i]; top = i; }
+  if (top < 0) return "#2a312e";
+  let second = -1, sb = 0.12;
+  for (let i = 0; i < shares.length; i++) if (i !== top && (shares[i] || 0) > sb) { sb = shares[i]; second = i; }
   const n = parseInt(faithColor(top).slice(1), 16);
+  if (second < 0) {
+    const w = Math.max(0.25, Math.min(1, best));
+    const r = ((n >> 16) & 255) * w + 42 * (1 - w);
+    const g = ((n >> 8) & 255) * w + 49 * (1 - w);
+    const b = (n & 255) * w + 46 * (1 - w);
+    return "rgb(" + (r | 0) + "," + (g | 0) + "," + (b | 0) + ")";
+  }
   const m = parseInt(faithColor(second).slice(1), 16);
-  const w = Math.min(0.2, Math.max(0, (shares[second] || 0) - 0.22));
+  const w = Math.min(0.35, Math.max(0, (shares[second] || 0) - 0.12));
   const r = ((n >> 16) & 255) * (1 - w) + ((m >> 16) & 255) * w;
   const g = ((n >> 8) & 255) * (1 - w) + ((m >> 8) & 255) * w;
   const b = (n & 255) * (1 - w) + (m & 255) * w;
@@ -76,7 +105,10 @@ function neighbors(x, y) {
   return n;
 }
 
-function faithName(i) { return (faithNames && faithNames[i]) || "Old Rite"; }
+function faithName(i) {
+  if (i == null || i < 0 || !faithNames || !faithNames[i]) return "No faith";
+  return faithNames[i];
+}
 
 function stamp(cx, cy, rx, ry) {
   const y0 = Math.max(1, Math.floor(cy - ry - 1));

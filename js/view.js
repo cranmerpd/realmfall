@@ -159,8 +159,8 @@ function render() {
       if (grid[y][x] !== LAND) continue;
       const id = owner[y][x];
       let fill = "#3a463c";
-      if (mapMode === "faith" && belief && belief[y][x]) {
-        fill = mixFaithColor(belief[y][x]);
+      if (mapMode === "faith") {
+        fill = belief && belief[y][x] ? mixFaithColor(belief[y][x]) : "#2a312e";
       } else if (mapMode === "climate") {
         fill = climateColor(x, y);
       } else if (id >= 0) {
@@ -284,6 +284,7 @@ function drawFaithEdges(cw, ch) {
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND || !belief[y][x]) continue;
     const top = topFaith(x, y);
+    if (top < 0) continue;
     const east = (x + 1) % COLS;
     if (grid[y][east] === LAND && belief[y][east] && topFaith(east, y) !== top) {
       ctx.moveTo((x + 1) * cw, y * ch);
@@ -397,9 +398,17 @@ function meter(pct) {
   return '<div class="meter"><i style="width:' + w + '%"></i></div>';
 }
 function faithBar(shares, total) {
-  const t = total || (shares ? shares.reduce((s, n) => s + n, 0) : 0) || 1;
+  const t = total || 1;
+  const n = shares ? shares.length : 0;
+  if (!n) return "";
   let html = '<div class="mix">';
-  for (let i = 0; i < 3; i++) html += '<i style="width:' + ((shares[i] || 0) / t * 100) + '%;background:' + faithColor(i) + '"></i>';
+  let used = 0;
+  for (let i = 0; i < n; i++) {
+    used += shares[i] || 0;
+    html += '<i style="width:' + ((shares[i] || 0) / t * 100) + '%;background:' + faithColor(i) + '"></i>';
+  }
+  const rest = Math.max(0, (t - used) / t * 100);
+  if (rest > 0.5) html += '<i style="width:' + rest + '%;background:#2c3330"></i>';
   return html + "</div>";
 }
 function sheetNav() {
@@ -467,8 +476,23 @@ function partyBlock(n) {
     return row(f.name, pct + "%") + meter(pct);
   }).join("");
 }
+function faithHere(n) {
+  const names = faithNames || [];
+  if (!names.length) return '<p class="quiet-line">No faith has been spoken. A faith is born among a people, the way a realm is. It is not issued with the crown.</p>';
+  const people = n.people || 1;
+  const shares = n.believers || [];
+  let held = 0;
+  let rows = faithBar(shares, people);
+  for (let i = 0; i < names.length; i++) {
+    const p = shares[i] || 0;
+    held += p;
+    if (p / people < 0.005) continue;
+    rows += row(faithName(i), Math.round(p / people * 100) + "%");
+  }
+  rows += row("No faith", Math.round(Math.max(0, people - held) / people * 100) + "%");
+  return rows;
+}
 function realmBrief(n, foe) {
-  const shares = n.believers || [0, 0, 0];
   return '<div class="vitals">'
     + vital("People", fmt(n.people))
     + vital("Hungry", Math.round((n.hungry || 0) * 100) + "%")
@@ -476,8 +500,7 @@ function realmBrief(n, foe) {
     + vital("Provinces", n.pops || 0)
     + "</div>"
     + '<div class="kicker">FAITH HERE</div>'
-    + faithBar(shares)
-    + [0, 1, 2].map(i => row(faithName(i), Math.round((n.people ? shares[i] / n.people : 0) * 100) + "%")).join("")
+    + faithHere(n)
     + '<p class="quiet-line">' + (foe ? "At war with " + foe.name + "." : "At peace.")
     + (n.parched ? " Drought on the river." : "")
     + " Seamanship: " + seaWord(n) + ".</p>";
@@ -597,11 +620,11 @@ function situation(n) {
 
 function faithCensus() {
   const rows = (faithNames || []).map((name, i) => ({ name, color: faithColor(i), people: 0 }));
-  if (!belief) return rows;
+  if (!belief || !rows.length) return rows;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     if (grid[y][x] !== LAND || !belief[y][x]) continue;
     const souls = (pop && pop[y][x]) || 0;
-    for (let i = 0; i < 3; i++) rows[i].people += souls * belief[y][x][i];
+    for (let i = 0; i < rows.length; i++) rows[i].people += souls * (belief[y][x][i] || 0);
   }
   return rows;
 }
@@ -647,13 +670,12 @@ function drawUI() {
     panel.querySelectorAll("li").forEach(li => { li.onclick = () => { selected = Number(li.dataset.id); tab = "realm"; drawUI(); }; });
   } else if (tab === "faith") {
     const census = faithCensus();
-    const total = census.reduce((s, f) => s + f.people, 0) || 1;
+    const worldPeople = nations.reduce((s, n) => s + (n.people || 0), 0) || 1;
     const rows = census.map(f => '<li><i class="swatch" style="background:' + f.color + '"></i><span class="name">' + f.name + '</span><span class="num">' + fmt(f.people) + '</span></li>').join("");
     const cults = nations.filter(n => n.gov === "Theocracy").map(n => n.name).join(", ");
-    panel.innerHTML = '<h2>Faith</h2><p id="blurb">Each province is a mix, not a flag. People pick up the faith of the people next to them. The color on the Faith map is that mix.</p>'
-      + faithBar(census.map(f => f.people), total)
-      + '<div class="kicker">BELIEVERS</div><ul>' + rows + '</ul>'
-      + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy keeps the cult its capital already had.") + '</p>';
+    panel.innerHTML = '<h2>Faith</h2><p id="blurb">A faith is born among a people, then it spreads to the people beside them. The map starts with none. The crown does not own it, unless the state is a theocracy.</p>'
+      + (census.length ? faithBar(census.map(f => f.people), worldPeople) + '<div class="kicker">BELIEVERS</div><ul>' + rows + '</ul>' : '<p class="quiet-line">No faith has been spoken yet.</p>')
+      + '<div class="kicker">THEOCRACIES</div><p id="blurb">' + (cults || "None. A theocracy can only keep a cult the people already follow.") + '</p>';
   } else if (tab === "log") {
     const own = focus && focus.history && focus.history.length;
     panel.innerHTML = (own
@@ -696,14 +718,18 @@ canvas.addEventListener("mousemove", e => {
     const souls = fmt(pop && pop[y] ? pop[y][x] : 0);
     const place = cities.find(c => c.x === x && c.y === y);
     const placeBit = place ? place.name + (owner[y][x] >= 0 && byId(owner[y][x])?.seat === place.id ? " · capital" : " · " + place.rank) + (place.fed != null && place.fed < 0.9 ? " · hungry" : "") + " · " : "";
-    if (mapMode === "faith" && belief && belief[y] && belief[y][x]) {
-      const s = belief[y][x];
-      const order = [0, 1, 2].sort((a, b) => s[b] - s[a]);
+    if (mapMode === "faith") {
+      const s = belief && belief[y] && belief[y][x];
+      const bits = [];
+      if (s) {
+        const order = [];
+        for (let i = 0; i < s.length; i++) if ((s[i] || 0) > 0.08) order.push(i);
+        order.sort((a, b) => s[b] - s[a]);
+        for (const i of order) bits.push(faithName(i) + " " + Math.round(s[i] * 100) + "%");
+      }
       const occ = occupy && occupy[y] && occupy[y][x] >= 0 && occupy[y][x] !== owner[y][x] ? "  ·  occupied by " + (byId(occupy[y][x])?.name || "another realm") : "";
       const who = owner[y][x] >= 0 ? (byId(owner[y][x])?.name || "Unclaimed") : "Unclaimed";
-      label = placeBit + faithName(order[0]) + " " + Math.round(s[order[0]] * 100) + "%"
-        + (s[order[1]] > 0.12 ? "  ·  " + faithName(order[1]) + " " + Math.round(s[order[1]] * 100) + "%" : "")
-        + "  ·  " + who;
+      label = placeBit + (bits.length ? bits.join("  ·  ") : "No faith") + "  ·  " + who + occ;
     } else if (owner[y][x] >= 0) {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
