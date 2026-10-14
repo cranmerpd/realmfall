@@ -495,7 +495,7 @@ function faithHere(n) {
 function realmBrief(n, foe) {
   return '<div class="vitals">'
     + vital("People", fmt(n.people))
-    + vital("Hungry", Math.round((n.hungry || 0) * 100) + "%")
+    + vital("Hungry", hungryLine(n))
     + vital("Legitimacy", Math.round(n.legitimacy || 0))
     + vital("Provinces", n.pops || 0)
     + "</div>"
@@ -510,8 +510,8 @@ function realmCountry(n) {
   return row("Population", fmt(n.people))
     + row("Per province", fmt(n.pops ? n.people / n.pops : 0))
     + row("Provinces", n.pops || 0)
-    + row("Hungry", Math.round((n.hungry || 0) * 100) + "%")
-    + row("Grain at the ports", fmt(n.grain || 0))
+    + row("Hungry", hungryLine(n))
+    + row("Grain in store", grainLine(n))
     + row("Fields", fieldLine(n))
     + row("Winter", n.capital ? climateWord(n.capital.x, n.capital.y) : "—")
     + row("Seat", seat ? seat.name : "—")
@@ -539,10 +539,10 @@ function realmCoin(n) {
     + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet smelted" : ""))
     + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : "") + ((n.age || 0) < 3 ? " · not yet drawn" : ""))
     + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : "") + ((n.age || 0) < 4 ? " · not yet worked" : ""))
-    + row("Grain for sale", fmt(n.grain))
-    + row("Grain bought", fmt(n.stores))
+    + row("Grain in store", grainLine(n))
+    + row("Grain price", n.grainPrice ? n.grainPrice.toFixed(2) : "—")
     + row("Last trade", n.lastTrade || "None")
-    + '<p class="quiet-line">' + why + ' A sale moves goods one way and coin the other. Grain bought abroad is eaten. The tax is taken from the whole product, including trade, not from a count of heads.</p>';
+    + '<p class="quiet-line">' + why + ' A field eats what it grew. The surplus is the realm\'s store, and that store is eaten before it is sold. A short store raises the price. A province that sells something can still buy grain. A province with nothing to sell cannot.</p>';
 }
 
 function realmRule(n) {
@@ -564,6 +564,18 @@ function realmRule(n) {
     + '<div class="kicker">PARTIES</div>'
     + partyBlock(n);
 }
+function hungryLine(n) {
+  const pct = Math.round((n.hungry || 0) * 100) + "%";
+  if ((n.hungry || 0) < 0.02 || !n.hungerCause) return pct;
+  return pct + " · short of grain";
+}
+function grainLine(n) {
+  const g = n.grain || 0;
+  const people = n.people || 0;
+  if (people < 1) return fmt(g);
+  const years = g / people;
+  return fmt(g) + " · " + (years >= 10 ? years.toFixed(0) : years.toFixed(1)) + " yr";
+}
 function fieldLine(n) {
   let nFields = 0;
   if (fields) for (const [x, y] of cellsOf(n.id)) if (fields[y][x]) nFields++;
@@ -574,7 +586,7 @@ function realmTrade(n) {
   return row("Merchants", merchants + " / " + (typeof merchantCap === "function" ? merchantCap(n) : merchants))
     + row("Merchant hulls", hullCensus(n, "cog"))
     + row("Last trade", n.lastTrade || "None")
-    + row("Grain at the ports", fmt(n.grain || 0))
+    + row("Grain in store", grainLine(n))
     + row("Seamanship", seaWord(n))
     + bargeLines(n)
     + row("River trade", pactNames(n))

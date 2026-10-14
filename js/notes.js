@@ -1,5 +1,16 @@
-const VERSION = "0.36";
+const VERSION = "0.37";
 const HISTORY = [
+  {
+    v: "0.37",
+    date: "14 Oct 2026",
+    items: [
+      "Grain is harvested into the province that grew it and eaten there first. Only the surplus goes into the realm store. That store feeds the provinces that fell short, and what remains can be sold.",
+      "A full store is eaten. Hunger with grain sitting unused does not happen. When the store runs short, the price rises: a province that sells timber, ore, oil, or grain can buy food, and a province with nothing to sell eats less.",
+      "People move toward a neighboring province that pays better. A city and a worked good pay. A field far from a market pays little. The countryside thins because the wage is elsewhere, not because a rule sets its population.",
+      "Goods squares are fewer. Each one that is worked yields more, and the people who live on it are paid from that.",
+      "A coastal tip is a natural place to settle. It is not punished for being a coast."
+    ]
+  },
   {
     v: "0.36",
     date: "14 Oct 2026",
