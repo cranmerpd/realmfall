@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.40 — 14 Oct 2026
+
+- Coal replaces ore. Mining still needs the coal age and coal in the ground.
+- Tax is a share of pretax income. The rate does not depend on that income.
+- Discovery is paid over years from the treasury. Stockpiles do not unlock it.
+- A port is a coastal city that paid to build one.
+- People can walk onto empty land. A fed town there can found a monarchy of one province.
+- Local unrest can split neighboring provinces. Realm-wide unrest can change the government or start a civil war.
+- Soldiers are not subtracted when raised. They are subtracted when they die.
+
 ## 0.31 — 9 Oct 2026
 
 - Hunger slows a realm. It no longer stops growth, learning, and sailing unless the famine is severe.

@@ -361,7 +361,7 @@ function drawGoods(cw, ch) {
     ctx.fillStyle = ink[g];
     ctx.fillRect((x + inset) * cw, (y + inset) * ch, Math.max(1, cw * (1 - inset * 2)), Math.max(1, ch * (1 - inset * 2)));
   }
-  const items = [["#d2b46a", "Fields"], ["#7ea85c", "Timber"], ["#c49658", "Ore"], ["#5a7a8a", "Oil"], ["#c6bae8", "Silicon"]];
+  const items = [["#d2b46a", "Fields"], ["#7ea85c", "Timber"], ["#6d6458", "Coal"], ["#5a7a8a", "Oil"], ["#c6bae8", "Silicon"]];
   ctx.font = "500 11px \"IBM Plex Mono\", ui-monospace, monospace";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -519,15 +519,17 @@ function realmCountry(n) {
 }
 function realmCoin(n) {
   const rate = Math.round(taxRate(n) * 100);
-  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard. The levy is a share of what the country produced and sold. Hungry people resent it."
-    : n.gov === "Republic" ? "A republic taxes lightly. The tax is a share of the product, not a tax on each head."
-    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly. Trade enlarges what is taxed, and the ports keep the rest."
-    : n.gov === "Theocracy" ? "A theocracy takes a tithe of the product. It sits worse where the cult is not the faith of the people."
-    : "A monarchy taxes the harvest and whatever was sold. A hungry country that keeps paying will not bear the crown forever.";
+  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard. The rate follows the government, the army, and what was spent last year. It does not follow income."
+    : n.gov === "Republic" ? "A republic taxes lightly. Income is what the country made before the tax. The rate does not rise because that income did."
+    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly. Trade is not part of the income the tax is taken from. Ports cost money to keep."
+    : n.gov === "Theocracy" ? "A theocracy takes a tithe of pretax income. The rate is not a share of that income deciding itself."
+    : "A monarchy taxes pretax income. The rate follows the crown, the army, and last year's spending. A hungry country that keeps paying will not bear it forever.";
   const balance = (n.lastExports || 0) - (n.lastImports || 0);
-  return row("GDP", fmt(n.gdp))
-    + row("Tax", rate + "% of GDP · " + fmt(n.taxTake))
+  return row("Income", fmt(n.income))
+    + row("Tax", rate + "% of income · " + fmt(n.taxTake))
+    + row("GDP", fmt(n.gdp))
     + row("Treasury", fmt(n.treasury))
+    + row("Upkeep", fmt(n.upkeep))
     + row("Exports", fmt(n.lastExports))
     + row("Imports", fmt(n.lastImports))
     + row("Trade balance", (balance >= 0 ? "+" : "") + fmt(balance))
@@ -536,7 +538,7 @@ function realmCoin(n) {
     + row("Harvest", fmt(n.yield))
     + row("City craft", fmt(n.craft))
     + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : "") + ((n.age || 0) < 1 ? " · not yet worked" : ""))
-    + row("Ore", fmt(n.ore) + (n.dugOre ? " · " + fmt(n.dugOre) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet smelted" : ""))
+    + row("Coal", fmt(n.coal) + (n.dugCoal ? " · " + fmt(n.dugCoal) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet mined" : ""))
     + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : "") + ((n.age || 0) < 3 ? " · not yet drawn" : ""))
     + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : "") + ((n.age || 0) < 4 ? " · not yet worked" : ""))
     + row("Grain in store", grainLine(n))
@@ -602,16 +604,15 @@ function realmMilitary(n) {
     + row("Wings", wings || "None")
     + row("Seamanship", seaWord(n))
     + (boatsBeside(n.id) ? row("Other boats here", boatsBeside(n.id)) : "")
-    + '<p class="quiet-line">A province changes hands only when an army, a wing, or a warship is there. A wing is not a ship. Hulls are counted from the ships that exist, not from the age alone. Oil makes a new ship steam. Metal makes it a carrack. Timber leaves it under sail. The same ages make an army march farther.</p>';
+    + '<p class="quiet-line">A province changes hands only when an army, a wing, or a warship is there. A wing is not a ship. Hulls are counted from the ships that exist, not from the age alone. Oil makes a new ship steam. Coal makes it a carrack. Timber leaves it under sail. The same ages make an army march farther.</p>';
 }
 
 function nextArt(n) {
   const next = (n.age || 0) + 1;
-  const kind = [0, 1, 2, 3, 4][next];
   const name = AGES[next] || "";
-  if (typeof holdsKind === "function" && !holdsKind(n, kind)) return name + " · none of it in the realm";
   const price = typeof agePrice === "function" ? agePrice(n, next) : 0;
-  return name + " · " + price + " coin";
+  const have = Math.round(n.learn || 0);
+  return name + " · " + have + " / " + price + " coin";
 }
 
 function armyLine(n) {
@@ -754,7 +755,7 @@ canvas.addEventListener("mousemove", e => {
       const n = byId(owner[y][x]);
       label = placeBit + (n ? n.name : "Realm") + "  ·  " + govLabel(n && n.gov) + "  ·  " + souls
         + (occupy && occupy[y] && occupy[y][x] >= 0 && occupy[y][x] !== owner[y][x] ? "  ·  occupied by " + (byId(occupy[y][x])?.name || "another realm") : "")
-        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  ore" : resource && resource[y] && resource[y][x] === 3 ? "  ·  oil" : resource && resource[y] && resource[y][x] === 4 ? "  ·  silicon" : "")
+        + (resource && resource[y] && resource[y][x] === 1 ? "  ·  timber" : resource && resource[y] && resource[y][x] === 2 ? "  ·  coal" : resource && resource[y] && resource[y][x] === 3 ? "  ·  oil" : resource && resource[y] && resource[y][x] === 4 ? "  ·  silicon" : "")
         + "  ·  " + climateWord(x, y);
     } else label = "Unclaimed  ·  " + souls;
   }

@@ -1,5 +1,18 @@
-const VERSION = "0.39";
+const VERSION = "0.40";
 const HISTORY = [
+  {
+    v: "0.40",
+    date: "14 Oct 2026",
+    items: [
+      "The mineral is coal, not ore. A province still produces nothing that is not in its ground, and it still needs the age that knows how to work it.",
+      "Income is pretax. The tax rate follows the government, the army, and what was spent last year. It does not follow income, so the two cannot chase each other. Revenue is that income times the rate. Upkeep, including ports, comes out of the treasury.",
+      "Discovery is paid for over years. Cities make it faster. A neighbor or a trade partner who is already ahead makes it faster. A stockpile does not. Hunger can pause it. It does not buy the age in one season.",
+      "A port is built only by a coastal city, and only when that city can pay. A town cannot have one. A coastal city does not receive one for standing on the water. An oligarchy feeds its ports first.",
+      "People walk toward higher pretax income, including onto empty land. The people who arrive are the people who left. A village can stand there. A town that is not hungry, and whose own income covers a year of court, can raise a monarchy. That realm holds only that province.",
+      "Neighboring provinces that are angry while the rest of the realm is quiet rise together and leave. Anger across the whole realm is different: a revolution changes the government and the realm stays one, and a civil war splits a bloc off. Faith and a lost war are not part of that anger yet.",
+      "Raising an army does not remove people from the province. The men who die are removed. Disbanding does not invent them back."
+    ]
+  },
   {
     v: "0.39",
     date: "14 Oct 2026",
