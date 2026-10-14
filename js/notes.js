@@ -1,5 +1,13 @@
-const VERSION = "0.37";
+const VERSION = "0.38";
 const HISTORY = [
+  {
+    v: "0.38",
+    date: "14 Oct 2026",
+    items: [
+      "A city's name follows its people. Calling a town a metropolis no longer raises its wages or how many it can hold, so the rank cannot promote itself. A metropolis is a city of a very large country, not the ordinary capital.",
+      "A new country is the people who landed, in one settlement. They are not divided into provinces of forty and then rounded back to forty. Forty people can have children. A dead colony no longer seals the rest of its continent."
+    ]
+  },
   {
     v: "0.37",
     date: "14 Oct 2026",

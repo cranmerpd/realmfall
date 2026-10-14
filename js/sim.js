@@ -436,8 +436,8 @@ function endureWinter() {
       let loss = gap * 0.14;
       const c = coldAt(x, y);
       if (c > 0.45) loss *= 1 + (c - 0.45) * 1.6;
-      const floor = owner[y][x] >= 0 ? 40 : 0;
-      pop[y][x] = Math.max(floor, Math.round((pop[y][x] || 0) * (1 - Math.min(0.42, loss))));
+      const next = (pop[y][x] || 0) * (1 - Math.min(0.42, loss));
+      pop[y][x] = next < 0.5 ? 0 : next;
     }
   }
   if (!units) return;
@@ -550,10 +550,10 @@ function step() {
 
 const TIERS = [
   { id: "village", at: 0 },
-  { id: "town", at: 1700 },
-  { id: "city", at: 4200 },
-  { id: "great city", at: 8000 },
-  { id: "metropolis", at: 12000 }
+  { id: "town", at: 900 },
+  { id: "city", at: 4000 },
+  { id: "great city", at: 14000 },
+  { id: "metropolis", at: 26000 }
 ];
 function tierAt(rank) {
   const i = TIERS.findIndex(t => t.id === rank);
@@ -635,12 +635,11 @@ function capacity(x, y) {
       K *= edge ? 0.58 : 0.9;
     }
   }
-  if (city) {
-    const seat = n && n.seat === city.id;
-    const caps = [2800, 7000, 14000, 26000, 48000];
-    const ageMul = n ? [1, 1.12, 1.28, 1.45, 1.7][Math.min(4, n.age || 0)] : 1;
-    K = Math.max(K, caps[tierAt(city.rank)] * (seat ? 1.12 : 1) * ageMul);
-  }
+  if (city && n) {
+    const seat = n.seat === city.id;
+    const market = Math.sqrt(Math.max(400, n.people || 0));
+    K = Math.max(K, 900 + market * (seat ? 26 : 7));
+  } else if (city) K = Math.max(K, 1600);
   return Math.max(380, Math.round(K));
 }
 
@@ -1081,12 +1080,12 @@ function settleFrontier(n, x, y) {
     const souls = pop[ny][nx] || 0;
     if (souls > best) { best = souls; donor = [nx, ny]; }
   }
-  if (!donor || best < 150) return false;
-  let move = Math.min(42, Math.round(best * 0.07), best - 110);
-  if (move < 16) return false;
+  if (!donor || best < 120) return false;
+  let move = Math.min(28, Math.round(best * 0.06));
+  if (move < 8 || best - move < 80) return false;
   const locals = pop[y][x] || 0;
   pop[donor[1]][donor[0]] = best - move;
-  pop[y][x] = Math.max(40, locals + move);
+  pop[y][x] = locals + move;
   if (belief && belief[y] && belief[donor[1]][donor[0]]) pourFaith(x, y, belief[donor[1]][donor[0]], locals, move);
   claim(x, y, n.id);
   if (forced) n.unrest = (n.unrest || 0) + 1.8;
@@ -1787,6 +1786,25 @@ function landHolds(id, x, y) {
   return false;
 }
 
+function realmNear(x, y, rad) {
+  const q = [[x, y, 0]];
+  const seen = new Set([key(x, y)]);
+  let qi = 0;
+  while (qi < q.length) {
+    const [cx, cy, d] = q[qi++];
+    if (d > 0 && owner[cy][cx] >= 0) return true;
+    if (d >= rad) continue;
+    for (const [nx, ny] of neighbors(cx, cy)) {
+      if (grid[ny][nx] !== LAND) continue;
+      const k = key(nx, ny);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      q.push([nx, ny, d + 1]);
+    }
+  }
+  return false;
+}
+
 function sailTo(n, port, dest) {
   const from = pop[port.y][port.x] || 0;
   let party = Math.round(from * (n.gov === "Dictatorship" ? 0.12 : 0.07));
@@ -1810,29 +1828,26 @@ function sailTo(n, port, dest) {
     }
   }
   if (!foe && !landHolds(n.id, dest.x, dest.y)) {
-    if (landHolds(-1, dest.x, dest.y)) {
+    if (realmNear(dest.x, dest.y, 12)) {
       pop[port.y][port.x] = from;
       return false;
     }
     const babyName = nameRealm();
-    const baby = found(dest.x, dest.y, babyName, colors[ri(colors.length)], "Ships from " + n.name + " settle a shore they cannot walk to. " + babyName + " is a people of its own, not a province of " + n.name + ".", "Monarchy", topFaith(port.x, port.y), n);
-    baby.age = n.age || 0;
+    const baby = found(dest.x, dest.y, babyName, colors[ri(colors.length)], "Ships from " + n.name + " settle a shore they cannot walk to. " + babyName + " is a people of its own, not a province of " + n.name + ".", "Monarchy", topFaith(port.x, port.y), n, "village");
+    baby.age = 0;
     baby.sea = Math.max(0.32, Math.min(0.55, (n.sea || 0.3) * 0.6));
-    baby.treasury = 160;
+    baby.treasury = 80;
     n.treasury = Math.max(0, (n.treasury || 0) - 40);
-    claimDisk(baby, 3);
-    const cells = cellsOf(baby.id);
-    const each = Math.max(40, Math.round(arrive / Math.max(1, cells.length)));
-    for (const [x, y] of cells) {
-      pop[y][x] = each;
-      if (belief && belief[port.y] && belief[port.y][port.x]) belief[y][x] = belief[port.y][port.x].slice();
-    }
-    n.grain = Math.max(0, (n.grain || 0) - 200);
+    pop[dest.y][dest.x] = arrive;
+    if (belief && belief[port.y] && belief[port.y][port.x]) belief[dest.y][dest.x] = belief[port.y][port.x].slice();
+    const food = Math.min(Math.round(arrive * 1.25), n.grain || 0);
+    n.grain = Math.max(0, (n.grain || 0) - food);
+    baby.grain = food;
     return true;
   }
   const flight = foe ? 0.45 : 0.22;
   const stayed = Math.round(locals * (1 - flight));
-  pop[dest.y][dest.x] = Math.max(40, stayed + arrive);
+  pop[dest.y][dest.x] = stayed + arrive;
   if (belief && belief[dest.y] && belief[dest.y][dest.x] && belief[port.y][port.x]) pourFaith(dest.x, dest.y, belief[port.y][port.x], stayed, arrive);
   claim(dest.x, dest.y, n.id);
   n.grain = Math.max(0, (n.grain || 0) - 350);
@@ -2938,7 +2953,7 @@ function demography() {
       const edge = neighbors(x, y).some(([nx, ny]) => owner[ny][nx] >= 0 && owner[ny][nx] !== id);
       p *= edge ? 0.993 : 0.9985;
     }
-    pop[y][x] = Math.max(40, Math.round(p));
+    pop[y][x] = p < 0.5 ? 0 : p;
   }
   settleRanks();
 }
@@ -3111,9 +3126,9 @@ function feed() {
         purse[y][x] = (purse[y][x] || 0) + 3.5 * access * agePay;
       }
       if (city) {
-        const tier = tierAt(city.rank);
-        const base = [260, 480, 820, 1300, 1900][tier];
-        purse[y][x] = (purse[y][x] || 0) + base * agePay + people * 0.026;
+        const seat = n.seat === city.id;
+        const budget = (seat ? 150 : 48) * agePay * (1 + Math.sqrt(Math.max(0, n.people || 0)) / 90);
+        purse[y][x] = (purse[y][x] || 0) + budget;
       }
       provs.push({ x, y, eats, people, local, city });
       need += eats;
