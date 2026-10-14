@@ -612,8 +612,10 @@ function capacity(x, y) {
   if (kind === "mouth") K += 480;
   if (kind === "coast") K += 140;
   if (elev && elev[y][x] > 0.58) K -= 280;
+  if (fields && fields[y] && fields[y][x]) K += 1600;
   const city = cities.find(c => c.x === x && c.y === y);
   if (n) {
+    K *= [1, 1.35, 1.8, 2.35, 3.1][Math.min(4, n.age || 0)];
     const R = rules(n.gov);
     const d = n.capital ? hypot(x, y, n.capital) : 9;
     if (d < 6) K += 180 * R.heart;
@@ -633,8 +635,9 @@ function capacity(x, y) {
   }
   if (city) {
     const seat = n && n.seat === city.id;
-    const caps = [2400, 4800, 9000, 14000, 20000];
-    K = Math.max(K, caps[tierAt(city.rank)] * (seat ? 1.12 : 1));
+    const caps = [2800, 7000, 14000, 26000, 48000];
+    const ageMul = n ? [1, 1.12, 1.28, 1.45, 1.7][Math.min(4, n.age || 0)] : 1;
+    K = Math.max(K, caps[tierAt(city.rank)] * (seat ? 1.12 : 1) * ageMul);
   }
   return Math.max(380, Math.round(K));
 }
@@ -670,7 +673,7 @@ function growCities() {
   for (const s of sites) {
     if (founded.has(s.realm.id) || (s.realm.id % 4) !== season) continue;
     const owned = cities.filter(c => owner[c.y][c.x] === s.realm.id).length;
-    if (owned > Math.max(1, s.realm.pops / 40)) continue;
+    if (owned >= Math.max(2, Math.floor((s.realm.pops || 1) / 14))) continue;
     if ((s.realm.treasury || 0) < 20) continue;
     s.realm.treasury -= 15;
     const town = placeCity(s.x, s.y, nameCity(), "town");
@@ -2903,9 +2906,10 @@ function demography() {
         if (cities.some(o => o.x === x && o.y === y)) continue;
         const dist = Math.hypot(x - c.x, y - c.y);
         if (dist > rad) continue;
-        const surplus = (pop[y][x] || 0) - capacity(x, y);
-        if (surplus < 40) continue;
-        const take = Math.min(pop[y][x] - 160, Math.round(surplus * pull * (1 - dist / rad)));
+        const room = capacity(x, y);
+        const surplus = (pop[y][x] || 0) - room * 0.82;
+        if (surplus < 25) continue;
+        const take = Math.min((pop[y][x] || 0) - Math.round(room * 0.7), Math.round(surplus * pull * (1 - dist / rad)));
         if (take <= 0) continue;
         pop[y][x] -= take;
         moved += take;
@@ -2931,6 +2935,9 @@ function landYield(x, y) {
     yld *= edge ? 0.6 : 0.88;
   }
   if (cities.some(c => c.x === x && c.y === y)) yld *= 0.25;
+  const souls = (pop && pop[y] && pop[y][x]) || 0;
+  if (field && souls > 400) yld *= 1 + Math.min(1.15, (souls - 400) / 2000);
+  if (n) yld *= [1, 1.35, 1.8, 2.35, 3.1][Math.min(4, n.age || 0)];
   return Math.max(40, yld);
 }
 

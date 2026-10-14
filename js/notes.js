@@ -1,5 +1,13 @@
-const VERSION = "0.33";
+const VERSION = "0.34";
 const HISTORY = [
+  {
+    v: "0.34",
+    date: "14 Oct 2026",
+    items: [
+      "A province no longer fills to a fixed number and stops. Worked fields hold more people. More hands on a field raise the harvest. A new age raises both. Towns can be founded in a country that has the people to spare, and they draw population out of the countryside.",
+      "A drought still kills. The country can climb past the old line afterward, instead of stopping at the same number every time."
+    ]
+  },
   {
     v: "0.33",
     date: "14 Oct 2026",
