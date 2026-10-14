@@ -1,5 +1,13 @@
-const VERSION = "0.35";
+const VERSION = "0.36";
 const HISTORY = [
+  {
+    v: "0.36",
+    date: "14 Oct 2026",
+    items: [
+      "A realm was only stepping onto the coast, because a coastal square outscored the land behind it. It now fills the country it already touches, inland as well as shore.",
+      "Provinces that touch at a corner count as connected. A coastal strip is no longer treated as cut off, and cut-off land is never erased back to empty."
+    ]
+  },
   {
     v: "0.35",
     date: "14 Oct 2026",

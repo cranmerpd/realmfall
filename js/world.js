@@ -99,9 +99,15 @@ function resize() {
 window.addEventListener("resize", resize);
 
 function neighbors(x, y) {
-  const n = [[(x + COLS - 1) % COLS, y], [(x + 1) % COLS, y]];
-  if (y > 0) n.push([x, y - 1]);
-  if (y < ROWS - 1) n.push([x, y + 1]);
+  const n = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    const ny = y + dy;
+    if (ny < 0 || ny >= ROWS) continue;
+    for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      n.push([(x + dx + COLS) % COLS, ny]);
+    }
+  }
   return n;
 }
 

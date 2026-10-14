@@ -1071,7 +1071,6 @@ function settleFrontier(n, x, y) {
   const hungry = n.hungry || 0;
   if (hungry > 0.48) return false;
   if ((pop[y][x] || 0) > 0) return false;
-  if (hungry > 0.16 && !(fields && fields[y] && fields[y][x])) return false;
   const forced = n.gov === "Dictatorship" && hungry <= 0.14 && (n.legitimacy || 0) > 48;
   let donor = null, best = 0;
   for (const [nx, ny] of neighbors(x, y)) {
@@ -1079,12 +1078,8 @@ function settleFrontier(n, x, y) {
     const souls = pop[ny][nx] || 0;
     if (souls > best) { best = souls; donor = [nx, ny]; }
   }
-  if (!donor || best < (forced ? 140 : 180)) return false;
-  const spare = best - Math.round(capacity(donor[0], donor[1]) * 0.5);
-  if (spare < 24 && !forced) return false;
-  const frac = n.gov === "Dictatorship" ? 0.16 : n.gov === "Republic" ? 0.055 : n.gov === "Oligarchy" ? 0.07 : 0.09;
-  let move = Math.round(best * frac);
-  move = Math.max(16, Math.min(best - 80, spare, move));
+  if (!donor || best < 150) return false;
+  let move = Math.min(42, Math.round(best * 0.07), best - 110);
   if (move < 16) return false;
   const locals = pop[y][x] || 0;
   pop[donor[1]][donor[0]] = best - move;
@@ -1173,46 +1168,36 @@ function immigrate() {
 }
 
 function grow(n) {
-  if ((n.hungry || 0) > 0.48) return;
-  if ((n.treasury || 0) < 4) return;
+  if ((n.hungry || 0) > 0.45) return;
   if (season === 3) return;
-  if (season === 2 && rnd() > 0.3) return;
   let moves = emptyFrontier(n);
   if (!moves.length) return;
   for (const m of moves) {
     if ((pop[m.ty] && pop[m.ty][m.tx] || 0) > 0) { m.score = -1; continue; }
-    let donor = 0, room = 1;
+    let donor = 0;
     for (const [nx, ny] of neighbors(m.tx, m.ty)) {
       if (owner[ny][nx] !== n.id) continue;
-      const souls = pop[ny][nx] || 0;
-      if (souls > donor) { donor = souls; room = capacity(nx, ny); }
+      donor = Math.max(donor, pop[ny][nx] || 0);
     }
-    const pressure = donor / Math.max(1, room);
-    const field = !!(fields && fields[m.ty][m.tx]);
-    const water = (river && river[m.ty][m.tx] > 8) || (coast && coast[m.ty][m.tx]);
-    let want = 0;
-    if (pressure > 0.96) want += 2.2;
-    else if (pressure > 0.84) want += 1.15;
-    else want -= 0.8;
-    if (field) want += (n.hungry || 0) > 0.05 ? 2.2 : 0.9;
-    if (water) want += 0.7;
-    if (resource && resource[m.ty][m.tx]) want += 0.5;
-    if (m.friends >= 3) want += 0.5;
-    if ((n.hungry || 0) > 0.16 && !field) want -= 1.6;
-    if (coldAt(m.tx, m.ty) > 0.62) want -= 1.2;
-    m.score = want + rnd() * 0.25;
-    m.pressure = pressure;
+    if (donor < 150) { m.score = -1; continue; }
+    const field = !!(fields && fields[m.ty] && fields[m.ty][m.tx]);
+    const cold = coldAt(m.tx, m.ty);
+    let want = m.friends * 1.5;
+    if (field) want += 1;
+    if (river && river[m.ty][m.tx] > 8) want += 0.5;
+    if (cold > 0.75) want -= 2.4;
+    else if (cold > 0.58) want -= 0.5;
+    if (m.friends <= 1 && coast && coast[m.ty][m.tx]) want -= 0.8;
+    m.score = want + rnd() * 0.15;
   }
-  moves = moves.filter(m => m.score > 1);
+  moves = moves.filter(m => m.score > 1.4);
   if (!moves.length) return;
   moves.sort((a, b) => b.score - a.score);
-  const take = moves[0].pressure > 1 && season === 0 ? 2 : 1;
+  const take = season === 0 ? 2 : 1;
   for (let i = 0; i < take && i < moves.length; i++) {
     const m = moves[i];
     if (owner[m.ty][m.tx] >= 0) continue;
-    if ((n.treasury || 0) < 4) break;
     if (!settleFrontier(n, m.tx, m.ty)) continue;
-    n.treasury = Math.max(0, (n.treasury || 0) - 4);
   }
 }
 
@@ -2845,6 +2830,7 @@ function annex(chunk) {
   }
   let best = -1, bestN = 0;
   for (const id of Object.keys(counts)) if (counts[id] > bestN) { bestN = counts[id]; best = Number(id); }
+  if (best < 0) return null;
   for (const [x, y] of chunk) claim(x, y, best);
   return best >= 0 ? byId(best) : null;
 }
