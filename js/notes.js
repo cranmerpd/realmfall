@@ -1,5 +1,15 @@
-const VERSION = "0.41";
+const VERSION = "0.42";
 const HISTORY = [
+  {
+    v: "0.42",
+    date: "15 Oct 2026",
+    items: [
+      "A country expands again. The people who leave a province are the people who arrive, including on empty land, and they take grain with them. The border follows those people. Ships, war, a town raising a realm, and a breakup are back. 0.41 was wrong to turn them off.",
+      "One field cannot feed a trillion people. More hands still raise the harvest, and once the people outrun that land they go hungry and leave. That is what pushes a realm outward. It is not a number the realm is forbidden to pass.",
+      "A province that already has hundreds of people, and is not mountain or ice or a deposit, can be cleared into a field. One such field a year for a realm. The map still does not start as a sheet of fields.",
+      "Towns stay two provinces apart."
+    ]
+  },
   {
     v: "0.41",
     date: "15 Oct 2026",

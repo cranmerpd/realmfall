@@ -446,7 +446,6 @@ function recount() {
 }
 
 function endureWinter() {
-  return;
   if (ration) {
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
@@ -509,6 +508,49 @@ function campaign() {
   }
 }
 
+
+function pressOut() {
+  if (!pop || !owner || season === 3) return;
+  const moves = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const souls = pop[y][x] || 0;
+    if (souls < 1600) continue;
+    const ate = ration && ration[y] ? ration[y][x] : 1;
+    if (ate < 0.9) continue;
+    const home = owner[y][x];
+    let best = null, bestS = 0;
+    for (const [nx, ny] of neighbors(x, y)) {
+      if (grid[ny][nx] !== LAND || coldAt(nx, ny) > 0.8) continue;
+      const o = owner[ny][nx];
+      if (home >= 0 && o >= 0 && o !== home) continue;
+      if (home < 0 && o >= 0) continue;
+      const there = pop[ny][nx] || 0;
+      if (there > souls * 0.35) continue;
+      let sc = 3;
+      if (there < 1) sc += 2;
+      if (fields && fields[ny][nx]) sc += 1.4;
+      if (o < 0) sc += 0.5;
+      if (sc > bestS) { bestS = sc; best = [nx, ny, there]; }
+    }
+    if (!best) continue;
+    let move = Math.min(48, Math.round(souls * 0.03));
+    if (move < 8 || souls - move < 400) continue;
+    moves.push({ x, y, souls, home, nx: best[0], ny: best[1], there: best[2], move });
+  }
+  for (const m of moves) {
+    if ((pop[m.y][m.x] || 0) < m.move + 400) continue;
+    pop[m.y][m.x] -= m.move;
+    pop[m.ny][m.nx] = (pop[m.ny][m.nx] || 0) + m.move;
+    if (granary && granary[m.y]) {
+      const take = (granary[m.y][m.x] || 0) * (m.move / m.souls);
+      granary[m.y][m.x] -= take;
+      granary[m.ny][m.nx] = (granary[m.ny][m.nx] || 0) + take;
+    }
+    if (m.home >= 0 && owner[m.ny][m.nx] < 0) claim(m.nx, m.ny, m.home);
+  }
+}
+
 function step() {
   if (season === 0) {
     year++;
@@ -519,18 +561,45 @@ function step() {
   }
   reindex();
   culture();
+  immigrate();
+  seekWork();
+  pressOut();
   if (season === 2) applyCauses();
+  else if (season === 3) endureWinter();
+  if (season === 2) provinceHeat();
   recount();
   for (const n of nations.slice()) {
     if (!nations.includes(n) || n.pops === 0) continue;
     settleCapital(n);
     measure(n);
+    if (!n.atWar.size) grow(n);
+    study(n);
     court(n);
+    intrigue(n);
+    considerCoup(n);
+    considerVote(n);
+    considerVoyage(n);
+    considerPorts(n);
   }
+  considerRevelation();
+  digestOccupation();
+  considerPacts();
+  settleWars();
+  for (const n of nations.slice()) considerCollapse(n);
+  nations = nations.filter(n => n.pops > 0);
+  reindex();
+  for (const n of nations.slice()) considerRevolt(n);
+  keepWhole();
+  absorbTiny();
+  growCities();
+  growCamps();
+  considerPolity();
   recount();
   for (const n of nations) holdSeat(n);
   recount();
   reindex();
+  campaign();
+  moveUnits();
   season = (season + 1) % 4;
   paintClock();
 }
@@ -645,7 +714,7 @@ function growCities() {
     if (!realm || realm.atWar.size || founded.has(realm.id)) continue;
     const kind = siteKind(x, y);
     if (kind === "inland" && (pop[y][x] || 0) < 80) continue;
-    if (cities.some(c => Math.max(Math.abs(c.x - x), Math.abs(c.y - y)) <= 1)) continue;
+    if (cities.some(c => Math.max(Math.abs(c.x - x), Math.abs(c.y - y)) <= 2)) continue;
     let hinter = 0;
     for (let yy = y - 4; yy <= y + 4; yy++) for (let xx = x - 4; xx <= x + 4; xx++) {
       if (yy < 0 || xx < 0 || yy >= ROWS || xx >= COLS || grid[yy][xx] !== LAND || owner[yy][xx] !== realm.id) continue;
@@ -682,14 +751,14 @@ function growCamps() {
     if ((pop[y][x] || 0) < 80) continue;
     if (coldAt(x, y) > 0.7) continue;
     if (cities.some(c => c.x === x && c.y === y)) continue;
-    if (cities.some(c => Math.max(Math.abs(c.x - x), Math.abs(c.y - y)) <= 1)) continue;
+    if (cities.some(c => Math.max(Math.abs(c.x - x), Math.abs(c.y - y)) <= 2)) continue;
     sites.push({ x, y, s: (pop[y][x] || 0) + (fields && fields[y][x] ? 40 : 0) });
   }
   sites.sort((a, b) => b.s - a.s);
   let made = 0;
   for (const s of sites) {
     if (made >= 3) break;
-    if (cities.some(c => Math.max(Math.abs(c.x - s.x), Math.abs(c.y - s.y)) <= 1)) continue;
+    if (cities.some(c => Math.max(Math.abs(c.x - s.x), Math.abs(c.y - s.y)) <= 2)) continue;
     const camp = placeCity(s.x, s.y, nameCity(), "village");
     chronicle(year, camp.name + " is a village on land no crown holds.");
     made++;
@@ -697,7 +766,6 @@ function growCamps() {
 }
 
 function considerPolity() {
-  return;
   if (season !== 0 || !pop || !owner || nations.length >= 14) return;
   let best = null;
   for (const c of cities) {
@@ -1085,6 +1153,12 @@ function settleFrontier(n, x, y) {
   const locals = pop[y][x] || 0;
   pop[donor[1]][donor[0]] = best - move;
   pop[y][x] = locals + move;
+  if (granary && granary[donor[1]]) {
+    const take = (granary[donor[1]][donor[0]] || 0) * (move / best);
+    granary[donor[1]][donor[0]] -= take;
+    if (!granary[y]) granary[y] = [];
+    granary[y][x] = (granary[y][x] || 0) + take;
+  }
   if (belief && belief[y] && belief[donor[1]][donor[0]]) pourFaith(x, y, belief[donor[1]][donor[0]], locals, move);
   claim(x, y, n.id);
   if (forced) n.unrest = (n.unrest || 0) + 1.8;
@@ -1150,6 +1224,11 @@ function immigrate() {
       const already = pop[ny][nx] || 0;
       pop[y][x] = souls - move;
       pop[ny][nx] = already + move;
+      if (granary && granary[y]) {
+        const take = (granary[y][x] || 0) * (move / souls);
+        granary[y][x] -= take;
+        granary[ny][nx] = (granary[ny][nx] || 0) + take;
+      }
       if (belief && belief[y] && belief[y][x]) pourFaith(nx, ny, belief[y][x], already, move);
       if (owner[ny][nx] < 0) walked += move;
       else if (owner[ny][nx] !== n.id) {
@@ -3064,7 +3143,7 @@ function applyCauses() {
     const id = owner[y][x];
     const n = id >= 0 ? byId(id) : null;
     let harvest = 0;
-    if (fields && fields[y][x] && hands >= 1) harvest = climate * hands * 2.2;
+    if (fields && fields[y][x] && hands >= 1) harvest = climate * Math.pow(hands, 0.72) * 18;
     granary[y][x] = (granary[y][x] || 0) + harvest;
     if (n && harvest > 0) { n.yield += harvest; n.harvest += harvest; }
     let goodsValue = harvest * 0.02;
@@ -3093,6 +3172,23 @@ function applyCauses() {
     }
   }
   settleTowns();
+  const cleared = new Set();
+  let wild = 0;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND || (fields && fields[y][x]) || (resource && resource[y][x])) continue;
+    const souls = pop[y][x] || 0;
+    if (souls < 400) continue;
+    if ((elev && elev[y] && elev[y][x] > 0.64) || coldAt(x, y) > 0.72) continue;
+    const id = owner[y][x];
+    if (id >= 0) {
+      if (cleared.has(id)) continue;
+      cleared.add(id);
+    } else {
+      if (wild >= 2) continue;
+      wild++;
+    }
+    fields[y][x] = 1;
+  }
   const portCount = new Map();
   for (const c of cities) {
     if (!c.port || !isPortCity(c)) { if (c.port && !isPortCity(c)) c.port = false; continue; }
@@ -3289,6 +3385,11 @@ function seekWork() {
     if (move < 2) continue;
     pop[y][x] = souls - move;
     pop[best[1]][best[0]] = best[2] + move;
+    if (granary && granary[y]) {
+      const take = (granary[y][x] || 0) * (move / souls);
+      granary[y][x] -= take;
+      granary[best[1]][best[0]] = (granary[best[1]][best[0]] || 0) + take;
+    }
     if (belief && belief[y] && belief[y][x]) pourFaith(best[0], best[1], belief[y][x], best[2], move);
   }
 }

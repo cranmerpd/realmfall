@@ -542,7 +542,7 @@ function realmCoin(n) {
     + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : ""))
     + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : ""))
     + row("Grain in store", grainLine(n))
-    + '<p class="quiet-line">' + why + ' Hunger is the grain in that province against the people who live there. A national route raises income in the provinces it joins. Unrest follows hunger and income. It does not found a realm and it does not split one.</p>';
+    + '<p class="quiet-line">' + why + ' Hunger is the grain in that province against the people who live there. A national route raises income in the provinces it joins. People who are crowded or hungry leave, and the grain they ate from goes with them.</p>';
 }
 
 function realmRule(n) {
