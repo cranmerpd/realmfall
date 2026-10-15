@@ -446,6 +446,7 @@ function recount() {
 }
 
 function endureWinter() {
+  return;
   if (ration) {
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       if (grid[y][x] !== LAND) continue;
@@ -517,51 +518,19 @@ function step() {
     summerDrought();
   }
   reindex();
-  demography();
   culture();
-  immigrate();
-  seekWork();
-  if (season === 2) {
-    feed();
-    extractLevy();
-  } else if (season === 3) {
-    endureWinter();
-  }
-  if (season === 2) provinceHeat();
+  if (season === 2) applyCauses();
   recount();
-  const claimants = nations.slice();
-  for (const n of claimants) {
+  for (const n of nations.slice()) {
     if (!nations.includes(n) || n.pops === 0) continue;
     settleCapital(n);
     measure(n);
-    if (!n.atWar.size) grow(n);
-    study(n);
     court(n);
-    intrigue(n);
-    considerCoup(n);
-    considerVote(n);
-    considerVoyage(n);
-    considerPorts(n);
   }
-  considerRevelation();
-  digestOccupation();
-  considerPacts();
-  settleWars();
-  for (const n of nations.slice()) considerCollapse(n);
-  nations = nations.filter(n => n.pops > 0);
-  reindex();
-  for (const n of nations.slice()) considerRevolt(n);
-  keepWhole();
-  absorbTiny();
-  growCities();
-  growCamps();
-  considerPolity();
   recount();
   for (const n of nations) holdSeat(n);
   recount();
   reindex();
-  campaign();
-  moveUnits();
   season = (season + 1) % 4;
   paintClock();
 }
@@ -728,6 +697,7 @@ function growCamps() {
 }
 
 function considerPolity() {
+  return;
   if (season !== 0 || !pop || !owner || nations.length >= 14) return;
   let best = null;
   for (const c of cities) {
@@ -812,11 +782,11 @@ function taxRate(n) {
     : n.gov === "Theocracy" ? 0.15
     : n.gov === "Oligarchy" ? 0.12
     : 0.1;
-  const arms = unitCount(n.id, "host") + unitCount(n.id, "warship");
-  rate += Math.min(0.08, arms * 0.012);
+  const arms = unitCount(n.id, "host") + unitCount(n.id, "warship") + unitCount(n.id, "wing");
+  rate += arms * 0.01;
   const spent = n.lastSpent || 0;
-  if (spent > 60) rate += Math.min(0.06, (spent - 60) / 5000);
-  return Math.max(0.06, Math.min(0.4, rate));
+  if (spent > 0) rate += spent / 8000;
+  return Math.max(0.04, rate);
 }
 
 function civilCost(n) {
@@ -1044,10 +1014,6 @@ function plant() {
     if (c > 0.72) s *= 0.4;
     if (!(fields && fields[y][x])) s = 0.55 + s * 0.45;
     stand[y][x] = Math.max(0.08, Math.min(1, s));
-    if (pop && (pop[y][x] || 0) >= 20 && fields && !fields[y][x] && !(resource && resource[y][x])) {
-      const e = elev && elev[y] ? elev[y][x] : 0;
-      if (e <= 0.64 && c <= 0.72) fields[y][x] = 1;
-    }
   }
 }
 
@@ -1874,7 +1840,6 @@ function sailTo(n, port, dest) {
     pop[dest.y][dest.x] = locals + arrive;
     if (belief && belief[port.y] && belief[port.y][port.x]) pourFaith(dest.x, dest.y, belief[port.y][port.x], locals, arrive);
     claim(dest.x, dest.y, n.id);
-    if (fields && !(resource && resource[dest.y][dest.x]) && coldAt(dest.x, dest.y) <= 0.72) fields[dest.y][dest.x] = 1;
     const food = Math.min(Math.round(arrive * 1.1), n.grain || 0);
     n.grain = Math.max(0, (n.grain || 0) - food);
     if (!granary) granary = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -2990,6 +2955,221 @@ function muster(n) {
   const leg = (n.legitimacy || 60) / 100;
   const homo = n.homo || 0.7;
   return (n.people || n.pops * 1200) * R.military * (0.5 + 0.5 * leg) * (0.72 + 0.28 * homo);
+}
+
+
+function townGap(x, y, ox, oy) {
+  let dx = Math.abs(x - ox);
+  if (dx > COLS / 2) dx = COLS - dx;
+  return Math.max(dx, Math.abs(y - oy));
+}
+
+function crowdedTown(x, y) {
+  for (const c of cities) {
+    if (c.x === x && c.y === y) continue;
+    if (townGap(x, y, c.x, c.y) <= 2) return true;
+  }
+  return false;
+}
+
+function climateAt(x, y) {
+  let c = Math.max(0.12, 1 - coldAt(x, y) * 0.85);
+  if (elev && elev[y] && elev[y][x] > 0.62) c *= 0.7;
+  return c;
+}
+
+function settleTowns() {
+  settleRanks();
+  const sites = [];
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    if ((pop[y][x] || 0) < 1000) continue;
+    if (cities.some(c => c.x === x && c.y === y)) continue;
+    if (crowdedTown(x, y)) continue;
+    sites.push([x, y, pop[y][x]]);
+  }
+  sites.sort((a, b) => b[2] - a[2]);
+  for (const [x, y, souls] of sites) {
+    if (crowdedTown(x, y)) continue;
+    const rank = TIERS[tierFor(souls, "town")].id;
+    placeCity(x, y, nameCity(), rank);
+  }
+  settleRanks();
+}
+
+function nationalRoutes(n) {
+  const routes = [];
+  const cap = n.capital;
+  if (!cap) return routes;
+  for (const [x, y] of cellsOf(n.id)) {
+    const good = (fields && fields[y] && fields[y][x]) || (resource && resource[y] && resource[y][x]);
+    if (!good || (x === cap.x && y === cap.y)) continue;
+    let dx = cap.x - x;
+    if (dx > COLS / 2) dx -= COLS;
+    if (dx < -COLS / 2) dx += COLS;
+    const dy = cap.y - y;
+    const dist = Math.hypot(dx, dy);
+    let direction = "inland";
+    if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) direction = dx > 0 ? "east" : "west";
+    else if (dy !== 0) direction = dy > 0 ? "south" : "north";
+    routes.push({ origin: [x, y], destination: [cap.x, cap.y], direction, distance: dist });
+  }
+  return routes;
+}
+
+function routeAt(routes, x, y) {
+  let best = null;
+  for (const r of routes) {
+    const hit = (r.origin[0] === x && r.origin[1] === y) || (r.destination[0] === x && r.destination[1] === y);
+    if (hit && (!best || r.distance < best.distance)) best = r;
+  }
+  return best;
+}
+
+function adminOf(n) {
+  const type = n.age || 0;
+  return { type: type, speed: 1 + type, capacity: 2 + type * 2, yearly: 2 + type };
+}
+
+function govKeep(n) {
+  if (n.gov === "Dictatorship") return 5;
+  if (n.gov === "Monarchy") return 3;
+  if (n.gov === "Theocracy") return 3;
+  if (n.gov === "Oligarchy") return 3;
+  return 2;
+}
+
+function applyCauses() {
+  if (!pop || !owner) return;
+  if (!granary) granary = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  if (!ration) ration = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+  if (!purse) purse = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  const goodsPrice = [0, 1.2, 1.8, 2.6, 4];
+  const goodsHands = [0, 0.015, 0.008, 0.004, 0.002];
+  for (const n of nations) {
+    n.yield = 0;
+    n.harvest = 0;
+    n.cutTimber = 0;
+    n.dugCoal = 0;
+    n.drawnOil = 0;
+    n.cutSilicon = 0;
+    n.craft = 0;
+  }
+  const produced = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (grid[y][x] !== LAND) continue;
+    const souls = pop[y][x] || 0;
+    const hands = souls * 0.58;
+    const climate = climateAt(x, y);
+    const id = owner[y][x];
+    const n = id >= 0 ? byId(id) : null;
+    let harvest = 0;
+    if (fields && fields[y][x] && hands >= 1) harvest = climate * hands * 2.2;
+    granary[y][x] = (granary[y][x] || 0) + harvest;
+    if (n && harvest > 0) { n.yield += harvest; n.harvest += harvest; }
+    let goodsValue = harvest * 0.02;
+    const kind = resource && resource[y][x];
+    if (kind && hands >= 1) {
+      const amt = climate * hands * goodsHands[kind];
+      goodsValue += amt * goodsPrice[kind];
+      if (n) {
+        if (kind === 1) { n.timber = (n.timber || 0) + amt; n.cutTimber += amt; }
+        else if (kind === 2) { n.coal = (n.coal || 0) + amt; n.dugCoal += amt; }
+        else if (kind === 3) { n.oil = (n.oil || 0) + amt; n.drawnOil += amt; }
+        else { n.silicon = (n.silicon || 0) + amt; n.cutSilicon += amt; }
+      }
+    }
+    produced[y][x] = goodsValue;
+    const have = granary[y][x] || 0;
+    const eat = Math.min(have, souls);
+    granary[y][x] = have - eat;
+    ration[y][x] = souls > 0 ? eat / souls : 1;
+    if (souls > 0) {
+      const h = 1 - ration[y][x];
+      const birth = 0.022 * (1 - h * 0.85);
+      const death = 0.011 + h * 0.07;
+      const p = souls + souls * birth - souls * death;
+      pop[y][x] = p < 0.5 ? 0 : p;
+    }
+  }
+  settleTowns();
+  const portCount = new Map();
+  for (const c of cities) {
+    if (!c.port || !isPortCity(c)) { if (c.port && !isPortCity(c)) c.port = false; continue; }
+    const id = owner[c.y] && owner[c.y][c.x];
+    if (id >= 0) portCount.set(id, (portCount.get(id) || 0) + 1);
+  }
+  const built = [];
+  for (const n of nations) {
+    const routes = nationalRoutes(n);
+    n.routes = routes;
+    let income = 0, hungryPeople = 0, people = 0, grain = 0;
+    for (const [x, y] of cellsOf(n.id)) {
+      const souls = pop[y][x] || 0;
+      people += souls;
+      grain += granary[y][x] || 0;
+      const ate = ration[y][x] == null ? 1 : ration[y][x];
+      if (souls > 0 && ate < 0.98) hungryPeople += souls * (1 - ate);
+      const route = routeAt(routes, x, y);
+      let pay = produced[y][x] || 0;
+      if (route) pay += pay * (0.35 / (1 + route.distance / 6));
+      if (purse[y]) purse[y][x] = pay;
+      income += pay;
+    }
+    n.people = people;
+    n.grain = grain;
+    n.income = income;
+    n.hungryPeople = hungryPeople;
+    n.hungry = people > 0 ? hungryPeople / people : 0;
+    n.hungerCause = n.hungry > 0.02 ? "short" : "";
+    const per = people > 0 ? income / people : 0;
+    let unrest = n.hungry * 70;
+    if (per < 0.02) unrest += (0.02 - per) * 400;
+    n.unrest = Math.max(0, Math.min(100, unrest));
+    const army = unitCount(n.id, "host");
+    const navy = unitCount(n.id, "warship");
+    const air = unitCount(n.id, "wing");
+    n.army = army;
+    n.navy = navy;
+    n.air = air;
+    const militaryCost = army * 10 + navy * 14 + air * 22;
+    const admin = adminOf(n);
+    n.admin = admin;
+    const ports = portCount.get(n.id) || 0;
+    let routeCost = 0;
+    for (const r of routes) routeCost += 3 + r.distance * 0.25;
+    const yearly = routeCost + ports * 12 + people * 0.001;
+    const spent = yearly + admin.yearly + militaryCost + govKeep(n);
+    n.yearly = yearly;
+    n.militaryCost = militaryCost;
+    n.upkeep = spent;
+    n.lastSpent = spent;
+    n.spent = militaryCost;
+    n.portCount = ports;
+    const rate = taxRate(n);
+    n.taxTake = income * rate;
+    let tradeRev = 0;
+    for (const r of routes) tradeRev += 2 + r.distance * 0.15;
+    n.nationalTrade = tradeRev;
+    built.push(n);
+  }
+  for (const n of built) {
+    let intl = 0;
+    if (n.portCount > 0) {
+      for (const other of built) if (other.id !== n.id && other.portCount > 0) intl += 6;
+    }
+    n.intlTrade = intl;
+    n.revenue = n.taxTake + n.nationalTrade + intl;
+    n.gdp = Math.round(n.income + n.nationalTrade + intl);
+    n.treasury = (n.treasury || 0) + n.revenue - n.upkeep;
+    n.income = Math.round(n.income);
+    n.taxTake = Math.round(n.taxTake);
+    n.lastExports = Math.round(n.nationalTrade);
+    n.lastImports = Math.round(intl);
+    n.exports = 0;
+    n.imports = 0;
+    n.grainPrice = n.hungry > 0 ? Math.round((1 + n.hungry * 4) * 100) / 100 : 0.4;
+  }
 }
 
 function seedPop() {

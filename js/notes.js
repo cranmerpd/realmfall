@@ -1,5 +1,17 @@
-const VERSION = "0.40";
+const VERSION = "0.41";
 const HISTORY = [
+  {
+    v: "0.41",
+    date: "15 Oct 2026",
+    items: [
+      "The year follows the cause map. Climate and the people on a square set the production. The harvest goes into that square's store. Hunger is that store against those people. Births and deaths follow hunger. Nothing else adds or removes people.",
+      "Goods squares are few, and they are placed when the map is made. A field is not added because people live there. The note in 0.37 said this. A later change planted a field on any province with 20 people and did not say so. That change is gone.",
+      "A town needs the population of a town, and two provinces between it and the next one. The same gap applies to a village, a city, and anything larger.",
+      "Income is pretax. It comes from production and from national trade routes. The tax rate comes from the government, the military, and expenditures. It does not come from income. Revenue is that rate times income, plus national and international trade. The treasury is revenue minus expenditures. Expenditures are the yearly cost (routes, ports, and population), the administrative unit, the military, and the government.",
+      "The military is an army, a navy, and an air force. Nothing on the map raises them, so this build does not. A port can only be a coastal city. Nothing on the map builds one, so none are added.",
+      "A province does not become a realm. Unrest does not split a realm and it does not change the government. People do not walk to another square. Borders do not move. Those causes are not on the map."
+    ]
+  },
   {
     v: "0.40",
     date: "14 Oct 2026",

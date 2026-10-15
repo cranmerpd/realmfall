@@ -445,12 +445,11 @@ function placeFields() {
     if (e > 0.64) continue;
     const c = coldAt(x, y);
     if (c > 0.78) continue;
-    let p = 0.42;
-    if (e < 0.4) p += 0.22;
-    if (river && river[y][x] > 6) p += 0.28;
-    if (coast && coast[y][x]) p += 0.08;
-    if (c > 0.5) p -= 0.2;
-    if (rnd() < p) fields[y][x] = 1;
+    let p = 0.07;
+    if (e < 0.4) p += 0.03;
+    if (river && river[y][x] > 6) p += 0.04;
+    if (c > 0.5) p -= 0.03;
+    if (p > 0 && rnd() < p) fields[y][x] = 1;
   }
 }
 

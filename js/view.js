@@ -519,32 +519,30 @@ function realmCountry(n) {
 }
 function realmCoin(n) {
   const rate = Math.round(taxRate(n) * 100);
-  const why = n.gov === "Dictatorship" ? "A dictatorship taxes hard. The rate follows the government, the army, and what was spent last year. It does not follow income."
-    : n.gov === "Republic" ? "A republic taxes lightly. Income is what the country made before the tax. The rate does not rise because that income did."
-    : n.gov === "Oligarchy" ? "An oligarchy taxes lightly. Trade is not part of the income the tax is taken from. Ports cost money to keep."
-    : n.gov === "Theocracy" ? "A theocracy takes a tithe of pretax income. The rate is not a share of that income deciding itself."
-    : "A monarchy taxes pretax income. The rate follows the crown, the army, and last year's spending. A hungry country that keeps paying will not bear it forever.";
+  const why = n.gov === "Dictatorship" ? "A dictatorship's tax follows the government, the military, and what the realm spends. It does not follow income."
+    : n.gov === "Republic" ? "A republic's tax follows the government, the military, and what the realm spends. Income is pretax."
+    : n.gov === "Oligarchy" ? "An oligarchy's tax follows the government, the military, and what the realm spends. Income is pretax."
+    : n.gov === "Theocracy" ? "A theocracy's tax follows the government, the military, and what the realm spends. Income is pretax."
+    : "A monarchy's tax follows the government, the military, and what the realm spends. Income is pretax.";
   const balance = (n.lastExports || 0) - (n.lastImports || 0);
   return row("Income", fmt(n.income))
     + row("Tax", rate + "% of income · " + fmt(n.taxTake))
-    + row("GDP", fmt(n.gdp))
+    + row("Revenue", fmt(n.revenue))
+    + row("Expenditures", fmt(n.upkeep))
     + row("Treasury", fmt(n.treasury))
-    + row("Upkeep", fmt(n.upkeep))
-    + row("Exports", fmt(n.lastExports))
-    + row("Imports", fmt(n.lastImports))
+    + row("National routes", (n.routes && n.routes.length) || 0)
+    + row("Ports", n.portCount || 0)
+    + row("Army", n.army || 0)
+    + row("Navy", n.navy || 0)
+    + row("Air force", n.air || 0)
     + row("Trade balance", (balance >= 0 ? "+" : "") + fmt(balance))
-    + row("Spent on arms", fmt(n.spent))
-    + row("Prosperity", fmt(n.wealth))
     + row("Harvest", fmt(n.yield))
-    + row("City craft", fmt(n.craft))
-    + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : "") + ((n.age || 0) < 1 ? " · not yet worked" : ""))
-    + row("Coal", fmt(n.coal) + (n.dugCoal ? " · " + fmt(n.dugCoal) + " dug" : "") + ((n.age || 0) < 2 ? " · not yet mined" : ""))
-    + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : "") + ((n.age || 0) < 3 ? " · not yet drawn" : ""))
-    + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : "") + ((n.age || 0) < 4 ? " · not yet worked" : ""))
+    + row("Timber", fmt(n.timber) + (n.cutTimber ? " · " + fmt(n.cutTimber) + " cut" : ""))
+    + row("Coal", fmt(n.coal) + (n.dugCoal ? " · " + fmt(n.dugCoal) + " dug" : ""))
+    + row("Oil", fmt(n.oil) + (n.drawnOil ? " · " + fmt(n.drawnOil) + " drawn" : ""))
+    + row("Silicon", fmt(n.silicon) + (n.cutSilicon ? " · " + fmt(n.cutSilicon) + " worked" : ""))
     + row("Grain in store", grainLine(n))
-    + row("Grain price", n.grainPrice ? n.grainPrice.toFixed(2) : "—")
-    + row("Last trade", n.lastTrade || "None")
-    + '<p class="quiet-line">' + why + ' A field eats what it grew. The surplus is the realm\'s store, and that store is eaten before it is sold. A short store raises the price. A province that sells something can still buy grain. A province with nothing to sell cannot.</p>';
+    + '<p class="quiet-line">' + why + ' Hunger is the grain in that province against the people who live there. A national route raises income in the provinces it joins. Unrest follows hunger and income. It does not found a realm and it does not split one.</p>';
 }
 
 function realmRule(n) {
